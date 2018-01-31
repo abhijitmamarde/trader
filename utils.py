@@ -1,19 +1,17 @@
 from datetime import datetime, date
 from collections import namedtuple
+import re
 
 DATE = date.today().strftime("%d%b%y")
 TIMEFMT = '%d%b%y-%H:%M:%S.%f'
 
 CONFIG_FILE = 'config.txt'
 CONFIG_TYPES = ('instruments',)
-CONFIG_TEXT = '''!Lines beginning with exclamation mark(!) will be ignored by the program
+CONFIG_TEXT = '''!This file is auto generated. Do not edit.
+!Lines beginning with exclamation mark(!) will be ignored by the program
 !General Format:
-!-CATEGORY-
-!-DATA-
-!-DATA-
-!-END-
-!-NEXTCATEGORY-
-!...
+!param='value with space'
+!param=value
 !Each category's expected data is mentioned in it's first line
 '''
 
@@ -30,11 +28,11 @@ def print_l(line):
 
 def print_s(spacer=''):
     if spacer == 'IN':
-        print_l("<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<")
+        print_l("<<<<<<<<<<<<<<")
     elif spacer == 'OUT':
-        print_l(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+        print_l(">>>>>>>>>>>>>>")
     else:
-        print_l("=================================================================")
+        print_l("=============================")
 
 
 
@@ -59,33 +57,12 @@ def is_trade_active():
 
 def load_config():
     config = {}
-    setting = ''
-    data = []
     try:
         with open(CONFIG_FILE, 'r') as f:
             for line in f:
-                if line[0] == '!':
-                    pass
-                else:
-                    line.rstrip()
-                    words = line.split()
-                    if len(words) < 1:
-                        print(words)
-                    elif words[0][0] == '-':
-                        if words[0][1:] == 'END':
-                            config[setting.lower()] = data
-                            setting = ''
-                            data = []
-                        else:
-                            setting = words[0][1:]
-                    else:
-                        l = [i for i in words]
-                        if len(l) > 1:
-                            data.append(tuple(l))
-                        elif len(l) == 1:
-                            data = l.pop()
-                        else:
-                            pass
+                if not(line[0] == '!' or len(line) < 1):
+                    terms = line.split('=')
+                    config[terms[0]]=terms[1][:-1]
     except FileNotFoundError:
         print("Config not found, creating template")
         f = open(CONFIG_FILE, 'w')
@@ -102,3 +79,9 @@ def load_config():
 def round_off(num, div=0.1):
     x = div*round(num/div)
     return float(x)
+
+def test_utils():
+    load_config()
+
+if __name__ == '__main__':
+    test_utils()

@@ -31,12 +31,13 @@ class GannAngles(TradeStrategy):
         print('in GA initialize')
         self.ohlc = OHLC().fromquote(quote_info)
         self.test = test
-        print(self.ohlc)
         if is_trade_active():
             self.calc_resistance(self.ohlc.ltp)
             self.calc_support(self.ohlc.ltp)
             self.init = True
             print_s()
+            print_l('Gann Angle for {}'.format(self.instrument['symbol']))
+            print_l('Calculated on ltp = {}'.format(self.ohlc.ltp))
             print_l('{} Buy Trigger = {}\n'.format(self.instrument.symbol,
                                                         self.res_trigger))
             print_l('{} Support Trigger = {}'.format(self.instrument.symbol,
