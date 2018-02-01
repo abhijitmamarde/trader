@@ -5,6 +5,7 @@ from OHLClogger import OHLCLog as logger
 import pickle
 import requests
 from requests.exceptions import HTTPError
+from stockdb import StockDB, table_types
 import time
 from upstox_api.api import *
 from utils import print_l, print_s, Actions, is_trade_active
@@ -23,6 +24,8 @@ class TradeCenter():
         self.running = False
         self.trading = False
         self.loggers = {}
+        # init db in listen() for thread compatibility
+        self.db = None
 
         if config is None:
             print_s()
@@ -62,7 +65,7 @@ class TradeCenter():
 
         print_s()
         try:
-            print_l('Starting Websocket to Upstox server')
+            print_l('Opening Websocket to Upstox server')
             self.client.start_websocket(True)
         except Exception as e:
             print_l('Error while starting websocket - ')
@@ -72,15 +75,16 @@ class TradeCenter():
         listener = threading.Thread(target=self.listen)
         try:
             listener.start()
-            print_l('Started update listener')
         except Exception as e:
             print_s()
             print_l('Unexexpted error')
             print_l(e)
 
             print_s()
-        input("Press enter to close program")
-        self.running = False
+        input("Press enter to close program\n")
+        with self.condition:
+            self.running = False
+            self.condition.notify_all()
 
 
     def sign_in(self):
@@ -104,7 +108,8 @@ class TradeCenter():
                 pass
         except EOFError:
             print_l('Data file empty. New credentials needed.')
-            token = self.save_new_tokens(self.config['api_key'], self.config['api_secret'])
+            token = self.save_new_tokens(self.config['api_key'],
+                                         self.config['api_secret'])
 
         print_s()
         print_l("Signing in to upstox-")
@@ -122,7 +127,8 @@ class TradeCenter():
                 if 'Invalid' in err and '401' in err:
                     print_s()
                     print_l("Credentials expired")
-                    token = self.save_new_tokens(self.config['api_key'], self.config['api_secret'])
+                    token = self.save_new_tokens(self.config['api_key'],
+                                                 self.config['api_secret'])
                 else:
                     raise
             except Exception as e:
@@ -167,6 +173,16 @@ class TradeCenter():
         'Checks update queues and calls the required update method'
         #Extra sleep so main thread can finish print statements
         time.sleep(1.0)
+
+        # DB init here for thread compatibility.
+        self.db = StockDB()
+        self.db.initialize('stock_db.sqlite')
+
+        for key in self.stock_dict:
+            if self.db.create_table(key, table_types.ohlc):
+                print_l('Table verified for: '+ str(key))
+
+        print_l('Receiving updates...')
         while self.running:
             try:
                 with self.condition:
@@ -193,7 +209,7 @@ class TradeCenter():
             print_s()
             print_l("Registering Indices")
             for ind in masters:
-               self.client.get_master_contract(ind)
+               print(len(self.client.get_master_contract(ind)))
             indices = masters
         except AttributeError:
             print_l("Masters preloaded/no valid masters provided")
@@ -246,6 +262,8 @@ class TradeCenter():
             except Exception as e:
                 print(e)
 
+        print_s()
+        print_l('Setting up logger...')
         for inst in insts:
             # Create a OHLC logger for the stock
             sym = inst.symbol.upper()

@@ -53,5 +53,5 @@ class OHLC:
     def timestamp(self):
         'Get epoch as local date-time in sqlite compatible format'
         fmt='%Y-%m-%dT%H:%M:%S.%f'
-        return datetime.fromtimestamp(self.epoch/1000).strftime(fmt)
+        return datetime.fromtimestamp(self.epoch/1000.0).strftime(fmt)
 

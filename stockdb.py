@@ -1,8 +1,8 @@
+from bunch import Bunch
 import csv
 from datetime import timedelta, datetime
 from ohlc import OHLC
 import pickle
-from random import random
 import sqlite3
 from sqlite3 import OperationalError
 import time
@@ -14,6 +14,8 @@ ohlc_table_fields = ({'name':'ts', 'type':'DATE'},
                      {'name':'high', 'type':'REAL'},
                      {'name':'low', 'type':'REAL'},
                      {'name':'close', 'type':'REAL'})
+
+table_types = Bunch(ohlc=0, open_orders=1)
 
 class StockDB:
     sqlite_file = "trade_db.sqlite"
@@ -42,70 +44,71 @@ class StockDB:
             self.tables_made.append(r[0])
 
         self.initialized = True
-        print("Init done")
 
 
-    def create_ohlc_table(self, symbol):
-        "Creates a table to store OHLC data with name = symbol"
+    def create_table(self, tablename, tabletype):
         global ohlc_table_fields
-        if symbol == None:
-            return False
-        if self.table_exists(symbol):
-            print('Table already made')
-            return False
-        with self.conn:
-            print("Creating table for ", symbol)
-            self.cursor.execute('''CREATE TABLE IF NOT EXISTS {tn}
-                                    ('{nf}' {ft})'''.format(tn=symbol,
-                                                          nf=ohlc_table_fields[0]['name'],
-                                                          ft=ohlc_table_fields[0]['type']))
 
-        for col in ohlc_table_fields[1:]:
+        if tabletype == table_types['ohlc']:
+            fields = ohlc_table_fields
+        else:
+            return False
+
+        if len(tablename) < 3:
+            return False
+
+        if self.table_exists(tablename):
+            return True
+        with self.conn:
+            self.cursor.execute('''CREATE TABLE IF NOT EXISTS {tn}
+                                    ('{nf}' {ft})'''.\
+                                format(tn=tablename,
+                                       nf=fields[0]['name'],
+                                       ft=fields[0]['type']))
+
+        for col in fields[1:]:
             with self.conn:
                 self.cursor.execute('''ALTER TABLE {tn} ADD COLUMN
-                                    '{cn}' {ct}'''.format(tn=symbol,
+                                    '{cn}' {ct}'''.format(tn=tablename,
                                                           cn=col['name'],
                                                           ct=col['type']))
 
-        if self.table_exists(symbol):
-            self.tables_made.append(symbol)
+        if self.table_exists(tablename):
+            self.tables_made.append({tablename:tabletype})
+            return True
+        return False
 
 
-    def add_ohlc(self, ohlc_data):
+    def add_data(self, tablename, tabletype, data):
         '''Accepts an OHLC class object and inserts it to the database.
         
         Fails if table does not exist
         Returns True on success, False on fail
         '''
-        print("Adding OHLC")
-        with self.conn:
-            self.cursor.execute('select * from {} where 1=0'.format(
-                                                            ohlc_data.symbol))
-        print('fields: ')
-        for d in self.cursor.description:
-            print('name- ', d[0])
-        try:
-            with self.conn:
-                self.cursor.execute(
-                    '''INSERT INTO {tn} VALUES
-                    (:t,
-                    :l,
-                    :a,
-                    :op,
-                    :hi,
-                    :lo,
-                    :cl)'''.format(tn=ohlc_data.symbol), \
-                    {'t':ohlc_data.timestamp,
-                     'l':ohlc_data.ltp,
-                     'a':ohlc_data.atp,
-                     'op':ohlc_data.op,
-                     'hi':ohlc_data.hi,
-                     'lo':ohlc_data.lo,
-                     'cl':ohlc_data.cl})
-        except sqlite3.OperationalError as e:
-            print(e)
-            return False
-        return True
+        if tabletype == table_types.ohlc:
+            try:
+                with self.conn:
+                    self.cursor.execute(
+                        '''INSERT INTO {tn} VALUES
+                        (:t,
+                        :l,
+                        :a,
+                        :op,
+                        :hi,
+                        :lo,
+                        :cl)'''.format(tn=ohlc_data.symbol), \
+                        {'t':data.timestamp,
+                         'l':data.ltp,
+                         'a':data.atp,
+                         'op':data.op,
+                         'hi':data.hi,
+                         'lo':data.lo,
+                         'cl':data.cl})
+            except sqlite3.OperationalError as e:
+                print(e)
+                return False
+            return True
+        return False
 
 
     def table_exists(self, table_name):
@@ -113,7 +116,6 @@ class StockDB:
         try:
             with self.conn:
                 self.cursor.execute('SELECT * FROM {}'.format(table_name))
-                print(self.cursor.fetchall())
         except sqlite3.OperationalError as e:
             if 'no such table' in e.args[0]:
                 return False
@@ -187,7 +189,7 @@ def csv_to_db():
 
 def db_test():
     db = StockDB()
-    db.initialize(db_name='test_db.sqlite')
+    db.initialize(':memory:')
     with open('samples.pkl', 'rb') as f:
         quote = pickle.load(f)
     data = OHLC.fromquote(quote)
