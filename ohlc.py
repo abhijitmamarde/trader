@@ -3,8 +3,8 @@ from datetime import datetime
 class OHLC:
     def __init__(self, timestamp=0 , sym='0', ltp=0.0, atp=0.0, op=0.0, hi=0.0, lo=0.0, cl=0.0):
         "timestamp: epochtime , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
-        self.symbol = sym
-        self.epoch = timestamp/1000
+        self.symbol = str(sym).upper()
+        self.epoch = timestamp
         self.ltp = ltp
         self.atp = atp
         self.op = op
@@ -33,10 +33,15 @@ class OHLC:
                 'low':self.lo,
                 'close':self.cl}
 
+    def as_tuple(self):
+        'For use by DB insertion methods. Omits Symbol'
+        return (str(self.timestamp), self.ltp,
+                self.atp, self.op, self.hi, self.lo, self.cl)
+
     @classmethod
     def fromquote(cls, quote):
-        return cls( int(quote['timestamp']),
-                   quote['symbol'],
+        return cls(int(quote['timestamp']),
+                   str(quote['symbol']).upper(),
                    float(quote['ltp']),
                    float(quote['atp']),
                    float(quote['open']),
@@ -46,6 +51,7 @@ class OHLC:
 
     @property
     def timestamp(self):
-        'Get epoch as local date-time'
-        fmt='%Y-%m-%d %H:%M:%S'
-        return datetime.fromtimestamp(self.epoch).strftime(fmt)
+        'Get epoch as local date-time in sqlite compatible format'
+        fmt='%Y-%m-%dT%H:%M:%S.%f'
+        return datetime.fromtimestamp(self.epoch/1000).strftime(fmt)
+

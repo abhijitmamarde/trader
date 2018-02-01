@@ -35,13 +35,10 @@ def main():
                            day=now.day,
                            hour=15,
                            minute=30)
-    '''
     if trade_end > now:
         online()
     else:
         offline()
-    '''
-    online()
 
 
 

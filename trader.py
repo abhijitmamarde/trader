@@ -187,15 +187,13 @@ class TradeCenter():
             self.close_ops()
 
 
-    def register_masters(self, masters=["nse_fo", "nse_eq"]):
+    def register_masters(self, masters=["nse_fo"]):
         'Boilerplate for adding exchanges to enable stock data subscriptions'
         try:
             print_s()
             print_l("Registering Indices")
             for ind in masters:
                self.client.get_master_contract(ind)
-            print_l('Indices loaded:')
-            print_l(self.client.enabled_exchanges)
             indices = masters
         except AttributeError:
             print_l("Masters preloaded/no valid masters provided")
