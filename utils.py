@@ -76,6 +76,27 @@ def load_config():
     return config
 
 
+class TradeStrategy():
+
+    def __init__(self, inst):
+        self.instrument = inst
+        instrument = None
+        orders = []
+        trades = []
+        start_time = datetime.now()
+        last_update = None
+        verbose = False
+
+    def quote_update(self, quote_info):
+        return Actions.none, None
+
+    def order_update(self, order_info):
+        return Actions.none, None
+
+    def trade_update(self, trade_info):
+        return Actions.none, None
+
+
 def round_off(num, div=0.1):
     x = div*round(num/div)
     return float(x)

@@ -24,14 +24,14 @@ class OHLC:
                        c=self.cl)
 
     def as_dict(self):
-        return {'timestamp':self.epoch,
-                'sym':self.symbol,
+        return {'time':str(self.timestamp),
+                'symbol':self.symbol,
                 'ltp':self.ltp,
                 'atp':self.atp,
-                'op':self.open,
-                'hi':self.high,
-                'lo':self.low,
-                'cl':self.close}
+                'open':self.op,
+                'high':self.hi,
+                'low':self.lo,
+                'close':self.cl}
 
     @classmethod
     def fromquote(cls, quote):
@@ -47,5 +47,5 @@ class OHLC:
     @property
     def timestamp(self):
         'Get epoch as local date-time'
-        fmt='%Y-%m-%d %H:%M:%S.%f'
+        fmt='%Y-%m-%d %H:%M:%S'
         return datetime.fromtimestamp(self.epoch).strftime(fmt)

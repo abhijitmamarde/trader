@@ -4,10 +4,10 @@ from math import sqrt
 
 from ohlc import OHLC
 from upstox_api.api import Instrument, TransactionType, OrderType, ProductType, DurationType
-from utils import print_l, print_s, is_trade_active, round_off, Actions
+from utils import is_trade_active, round_off, Actions, print_s, print_l
+from utils import TradeStrategy
 
 
-from trader import TradeStrategy
 
 class GannAngles(TradeStrategy):
 
@@ -24,11 +24,12 @@ class GannAngles(TradeStrategy):
     target_orderid = 0
     sell_orderid = 0
     ordered = False
+    order_attempts = 0
+    max_attempts = 5
     orders = []
     trades =[]
 
     def initialize(self, quote_info, test=False):
-        print('in GA initialize')
         self.ohlc = OHLC().fromquote(quote_info)
         self.test = test
         if is_trade_active():
@@ -36,12 +37,10 @@ class GannAngles(TradeStrategy):
             self.calc_support(self.ohlc.ltp)
             self.init = True
             print_s()
-            print_l('Gann Angle for {}'.format(self.instrument['symbol']))
+            print_l('Gann Angle for {}'.format(self.instrument.symbol))
             print_l('Calculated on ltp = {}'.format(self.ohlc.ltp))
-            print_l('{} Buy Trigger = {}\n'.format(self.instrument.symbol,
-                                                        self.res_trigger))
-            print_l('{} Support Trigger = {}'.format(self.instrument.symbol,
-                                                        self.sup_trigger))
+            print_l('Buy Trigger = {}'.format(self.res_trigger))
+            print_l('Support Trigger = {}'.format(self.sup_trigger))
             print_s()
         else:
             print_s()
@@ -49,7 +48,6 @@ class GannAngles(TradeStrategy):
             print_s()
 
     def quote_update(self, quote_info):
-        print('in GA qoute_update')
         if self.init == False:
             self.initialize(quote_info)
             return Actions.none, None
@@ -63,10 +61,12 @@ class GannAngles(TradeStrategy):
         self.ohlc.cl = float(quote_info['close'])
         self.epoch = int(quote_info['timestamp'])/1000
 
-        if self.ordered:
+        if self.ordered or self.order_attempts > self.max_attempts:
             return Actions.none, None
         elif self.ohlc.ltp >= self.res_trigger and is_trade_active():
             self.ordered = True
+            print_l('Order attempt {} of {}'.format(self.order_attempts,
+                                                    self.max_attempts))
             return Actions.buy, self.buy_args()
         elif self.ohlc.ltp <= self.sup_trigger:
             self.calc_resistance(self.ohlc.ltp)
@@ -77,12 +77,15 @@ class GannAngles(TradeStrategy):
         if self.not_rejected(order_info['status']):
             if order_info['transaction_type'] == 'B':
                 self.buy_orderid = order_info['order_id']
+                self.order_attempts += 1
             elif order_info['trigger_price'] > 0:
                 self.stoploss_orderid = order_info['order_id']
             else:
                 self.target_orderid = order_info['order_id']
         else:
-            self.ordered = False
+            self.order_attempts += 1
+            print_l('Order rejected, {} attempts remaining'.format(self.max_attempts - \
+                                      self.order_attempts))
         self.orders.append(order_info)
 
     def trade_update(self, trade_info):

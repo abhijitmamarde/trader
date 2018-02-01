@@ -1,11 +1,14 @@
 from datetime import datetime, timedelta
+from gann import GannAngles
 from ohlc import OHLC
+from OHLClogger import OHLCLog as logger
 import pickle
 import requests
 from requests.exceptions import HTTPError
 import time
 from upstox_api.api import *
-from utils import print_l, print_s, Actions
+from utils import print_l, print_s, Actions, is_trade_active
+from utils import TradeStrategy
 
 
 
@@ -19,6 +22,7 @@ class TradeCenter():
         self.stock_dict = {}
         self.running = False
         self.trading = False
+        self.loggers = {}
 
         if config is None:
             print_s()
@@ -28,6 +32,56 @@ class TradeCenter():
         self.quote_queue = []
         self.trade_queue = []
         self.order_queue = []
+
+
+    def run(self, offline=False):
+        '''Executes boilerplate
+        
+        Initiates listener for updates on a separate thread'''
+
+        if self.config == None:
+            print_s()
+            print_l("No config provided. Unable to sign in.")
+            return
+        self.sign_in()
+        self.register_masters()
+        self.register_handlers()
+        self.register_stocks()
+
+        if offline:
+            self.make_reports()
+            return
+
+        print_s()
+        rep = input("Enable stock ordering?(y/n)")
+        if rep.upper() == 'Y':
+            self.trading = True
+            print_l("Trading Enabled. Will place orders.")
+        else:
+            print_l("Trading Disabled. Listening only.")
+
+        print_s()
+        try:
+            print_l('Starting Websocket to Upstox server')
+            self.client.start_websocket(True)
+        except Exception as e:
+            print_l('Error while starting websocket - ')
+            print_l(e.args[0])
+
+        self.running = True
+        listener = threading.Thread(target=self.listen)
+        try:
+            listener.start()
+            print_l('Started update listener')
+        except Exception as e:
+            print_s()
+            print_l('Unexexpted error')
+            print_l(e)
+
+            print_s()
+        input("Press enter to close program")
+        self.running = False
+
 
     def sign_in(self):
         '''Login to Upstox.'''
@@ -109,47 +163,10 @@ class TradeCenter():
         return access_token
 
 
-    def run(self, offline=False):
-        '''Executes boilerplate
-        
-        Initiates listener for updates on a separate thread'''
-
-        if self.config == None:
-            print_s()
-            print_l("No config provided. Unable to sign in.")
-            return
-        self.sign_in()
-        self.register_masters()
-        self.register_handlers()
-
-        if offline:
-            self.make_reports()
-            return
-
-        print_s()
-        rep = input("Enable stock ordering?(y/n)")
-        if rep.upper() == 'Y':
-            self.trading = True
-            print_s()
-            print_l("Trading Enabled. Will place orders.")
-        else:
-            print_s()
-            print_l("Trading Disabled. Listening only.")
-
-        # starting Websocket to Upstox server
-        try:
-            self.client.start_websocket(True)
-        except Exception as e:
-            print_l('Error while starting websocket - ')
-            print_l(e.args[0])
-
-        listener = threading.Thread(target=self.listen())
-        listener.daemon = True
-        listener.start()
-
-
-
     def listen(self):
+        'Checks update queues and calls the required update method'
+        #Extra sleep so main thread can finish print statements
+        time.sleep(1.0)
         while self.running:
             try:
                 with self.condition:
@@ -160,70 +177,110 @@ class TradeCenter():
                     self.order_update(self.order_queue.pop())
                 if len(self.trade_queue) > 0:
                     self.trade_update(self.trade_queue.pop())
-                time.sleep(0.3)
-            except KeyboardInterrupt:
-                close_ops()
-                return
+                time.sleep(0.2)
+            except KeyboardInterrupt as e:
+                self.running = False
+
             if not is_trade_active():
-                close_ops()
-                return
+                self.running = False
+        else:
+            self.close_ops()
 
 
-    def register_masters(self, masters):
-        'masters = ["nse_fo", "nse_eq"]'
-        masters = ["nse_fo", "nse_eq"]
+    def register_masters(self, masters=["nse_fo", "nse_eq"]):
+        'Boilerplate for adding exchanges to enable stock data subscriptions'
         try:
+            print_s()
             print_l("Registering Indices")
             for ind in masters:
-               client.get_master_contract(ind)
+               self.client.get_master_contract(ind)
             print_l('Indices loaded:')
-            print_l(client.enabled_exchanges)
+            print_l(self.client.enabled_exchanges)
             indices = masters
         except AttributeError:
             print_l("Masters preloaded/no valid masters provided")
+        except HTTPError as e:
+            print_s()
+            print_l('Server error - ')
+            print_l(e.args[0])
+            print_s()
 
 
     def register_handlers(self):
+        'Registers quote, order and trade handlers for Upstox updates'
         try:
+            print_s()
             print_l('Registering handlers')
             self.client.set_on_quote_update(self.quote_handler)
             self.client.set_on_order_update(self.order_handler)
-            self.client.set_on_trade_update(self.rade_handler)
+            self.client.set_on_trade_update(self.trade_handler)
         except Exception as e:
             print_l('Unable to register handlers - ')
             print_l(e.args[0])
 
 
-    def quote_handler(message):
+    def register_stocks(self):
+        '''Subscribes to stocks for live feed.
+        
+        Additionally creates a logger for each stock subscribed in
+        self.loggers[symbol]
+        '''
+        stocks = []
+        insts = []
+        ym = '18FEB'
+        stocks.append(('NSE_FO', "NIFTY" + ym + str(11200) + 'CE'))
+        stocks.append(('NSE_FO', "NIFTY" + ym + str(11000) + 'PE'))
+        print_s()
+        print_l('Registering stocks')
+        print_s()
+        print_l('Loading instruments...')
+        for stock in stocks:
+            try:
+                insts.append(self.client.get_instrument_by_symbol(stock[0],
+                                                                  stock[1]))
+            except Exception as e:
+                print(e)
+        print_s()
+        for inst in insts:
+            try:
+                print_l("Subscribing to {} - {}".format(stock[0], stock[1]))
+                self.client.subscribe(inst, LiveFeedType.Full)
+            except Exception as e:
+                print(e)
+
+        for inst in insts:
+            # Create a OHLC logger for the stock
+            sym = inst.symbol.upper()
+            self.loggers[sym] = logger(sym)
+            self.stock_dict[sym] = GannAngles(inst)
+
+    def quote_handler(self, message):
         '''Addes message to queue for processing.
         
         This handler runs on the Upstox websocket thread.
         '''
-        condition = threading.Condition()
-        with condition:
-            quote_queue.append(message)
-            condition.notify_all()
+        with self.condition:
+            self.quote_queue.append(message)
+            self.condition.notify_all()
 
 
-    def order_handler(message):
+    def order_handler(self, message):
         '''Addes message to queue for processing.
         
         This handler runs on the Upstox websocket thread.
         '''
-        condition = threading.Condition()
-        with condition:
-            order_queue.append(message)
-            condition.notify_all()
+        with self.condition:
+            self.order_queue.append(message)
+            self.condition.notify_all()
 
-    def trade_handler( message):
+    def trade_handler(self, message):
         '''Addes message to queue for processing.
         
         This handler runs on the Upstox websocket thread.
         '''
-        condition = threading.Condition()
-        with condition:
-            trade_queue.append(message)
-            condition.notify_all()
+        with self.condition:
+            self.trade_queue.append(message)
+            self.condition.notify_all()
 
 
     def quote_update(self, message):
@@ -254,43 +311,50 @@ class TradeCenter():
         'total_sell_qty': 221775,
         'atp': 103.58}
         '''
+
         sym = message['symbol']
+
         dat = OHLC.fromquote(message)
+        self.loggers[sym].logOHLC(dat.as_dict())
+
         order = ''
 
-        if self.trading:
-            action, args = self.stock_dict[sym].quote_update(message)
-            if action == Actions.buy and args is not None:
-                print_l('')
-                print_s('OUT')
-                print_l('Placing order:')
-                print_l('Instrument:    {}'.format(args[1].symbol))
-                print_l('Order Price:   {}'.format(args[5]))
-                print_l('Trigger price: {}'.format(args[6]))
-                print_l('Sell Target:   {}'.format(args[5] + args[10]))
-                print_l('Stoploss:      {}'.format(args[5] - args[9]))
-                print_l('Quantity:      {}'.format(args[2]))
-                print_s('OUT')
-                print_l('')
+        action, args = self.stock_dict[sym].quote_update(message)
+        if action == Actions.buy and args is not None:
+            print_l('')
+            print_s('OUT')
+            print_l('Placing order:')
+            print_l('Instrument:    {}'.format(args[1].symbol))
+            print_l('Order Price:   {}'.format(args[5]))
+            print_l('Trigger price: {}'.format(args[6]))
+            print_l('Sell Target:   {}'.format(args[5] + args[10]))
+            print_l('Stoploss:      {}'.format(args[5] - args[9]))
+            print_l('Quantity:      {}'.format(args[2]))
+            print_s('OUT')
+            print_l('')
+
+            if self.trading:
                 try:
                     order = self.client.place_order(*args)
                 except Exception as e:
                     print_s()
                     print_l('Error while placing order!')
+                    print_l('order args:')
+                    print_l(args)
                     print_l(e.args[0])
                     print_s()
-            elif action == Actions.mod_sl and args is not None:
-                print_s('OUT')
-                print_l("{} - modifying stoploss order".format(sym))
-                print_l("order_id = {}".format(args[0]))
-                try:
-                    order = self.client.modify_order(order_id=args[0],
-                                                  trigger_price=args[1])
-                except Exception as e:
-                    print_s()
-                    print_l('Exception while modifying order!')
-                    print_l(e.args[0])
-                    print_s()
+        elif action == Actions.mod_sl and args is not None:
+            print_s('OUT')
+            print_l("{} - modifying stoploss order".format(sym))
+            print_l("order_id = {}".format(args[0]))
+            try:
+                order = self.client.modify_order(order_id=args[0],
+                                              trigger_price=args[1])
+            except Exception as e:
+                print_s()
+                print_l('Exception while modifying order!')
+                print_l(e.args[0])
+                print_s()
 
             if len(order) > 0:
                 print_s('IN')
@@ -305,43 +369,42 @@ class TradeCenter():
         
         Updates the relevant TradeStrategy object in stock_dict with the order info
         '''
-        print("in order_update_handler")
         sym = message['symbol'].upper()
+        print_s('IN')
         try:
             self.stock_dict[sym].order_update(message)
-            '''
+            print_s()
         except KeyError as e:
-            print_s('IN')
-            print_l('Order info:')
-            for key in message:
-                print_l(message[key])
-            print_s('IN')
-            '''
+            print_l('Update received for unregistered stock')
+            print_s()
         except Exception as e:
-            print("Error in order_update_handler:")
-            print(e)
+            print_s()
+            print_l("Unhandled Error in order_update:")
+            print_l(e)
+            print_s()
 
+        print_l('Order info received:')
+        print_l(message)
+        print_s('IN')
 
     def trade_update(self, message):
         '''Processes items from the trade queue.
         
         Updates the relevant TradeStrategy object in stock_dict with the trade info
         '''
-        print("in trade_update_handler")
         sym = message['symbol'].upper()
+        print_s('IN')
         try:
             self.stock_dict[sym].order_update(message)
-            '''
         except KeyError as e:
-            print_s('IN')
-            print_l('Trade info:')
-            for key in message:
-                print_l(message[key])
-            print_s('IN')
-            '''
+            print_l('Update received for unregistered stock')
         except Exception as e:
             print("Error in trade_update_handler:")
             print(e)
+        print_l('Trade info received:')
+        for key in message:
+            print_l(message[key])
+        print_s('IN')
 
 
     def make_reports(self):
@@ -383,7 +446,7 @@ class TradeCenter():
                 f.write("\n----------------------------------\n")
 
         print_l("Generating trade book")
-        trades = self.lient.get_trade_book()
+        trades = self.client.get_trade_book()
         with open('trades{}.txt'.format(dmy), 'w') as f:
             f.write('Trades Completed ----\n')
             for trade in trades:
@@ -400,26 +463,4 @@ class TradeCenter():
         self.running = False
         print_l('Shut Down Complete.')
         print_s()
-
-
-class TradeStrategy():
-
-    def __init__(self, inst):
-        self.instrument = inst
-        instrument = None
-        orders = []
-        trades = []
-        start_time = datetime.now()
-        last_update = None
-        verbose = False
-
-    def quote_update(self, quote_info):
-        return Actions.none, None
-
-    def order_update(self, order_info):
-        return Actions.none, None
-
-    def trade_update(self, trade_info):
-        return Actions.none, None
-
 
