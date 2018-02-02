@@ -340,7 +340,8 @@ class TradeCenter():
         self.loggers[sym].logOHLC(dat.as_dict())
 
         order = ''
-
+        if not self.trading:
+            print_l('Quote update received')
         action, args = self.stock_dict[sym].quote_update(message)
         if action == Actions.buy and args is not None:
             print_l('')
