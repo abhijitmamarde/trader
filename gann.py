@@ -77,7 +77,8 @@ class GannAngles(TradeStrategy):
         if self.not_rejected(order_info['status']):
             if order_info['transaction_type'] == 'B':
                 self.buy_orderid = order_info['order_id']
-                self.order_attempts += 1
+                if order_info['status'] == 'complete':
+                    self.order_attempts += 1
             elif order_info['trigger_price'] > 0:
                 self.stoploss_orderid = order_info['order_id']
             else:

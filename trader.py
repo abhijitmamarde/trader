@@ -188,7 +188,12 @@ class TradeCenter():
                 with self.condition:
                     self.condition.wait()
                 if len(self.quote_queue) > 0:
-                    self.quote_update(self.quote_queue.pop())
+                    for q in self.quote_queue:
+                        o = OHLC.fromquote(q)
+                        self.db.add_data(q['symbol'], table_types.ohlc, o)
+                        self.quote_update(q)
+                        self.quote_queue.remove(q)
+                    
                 if len(self.order_queue) > 0:
                     self.order_update(self.order_queue.pop())
                 if len(self.trade_queue) > 0:
@@ -242,8 +247,8 @@ class TradeCenter():
         stocks = []
         insts = []
         ym = '18FEB'
-        stocks.append(('NSE_FO', "NIFTY" + ym + str(11200) + 'CE'))
-        stocks.append(('NSE_FO', "NIFTY" + ym + str(11000) + 'PE'))
+        stocks.append(('NSE_FO', "NIFTY" + ym + str(10800) + 'CE'))
+        stocks.append(('NSE_FO', "NIFTY" + ym + str(10900) + 'PE'))
         print_s()
         print_l('Registering stocks')
         print_s()
@@ -257,7 +262,8 @@ class TradeCenter():
         print_s()
         for inst in insts:
             try:
-                print_l("Subscribing to {} - {}".format(stock[0], stock[1]))
+                print_l("Subscribing to {} - {}".format(inst.exchange,
+                                                        inst.symbol))
                 self.client.subscribe(inst, LiveFeedType.Full)
             except Exception as e:
                 print(e)
@@ -389,18 +395,12 @@ class TradeCenter():
         print_s('IN')
         try:
             self.stock_dict[sym].order_update(message)
-            print_s()
         except KeyError as e:
             print_l('Update received for unregistered stock')
-            print_s()
         except Exception as e:
-            print_s()
             print_l("Unhandled Error in order_update:")
             print_l(e)
-            print_s()
 
-        print_l('Order info received:')
-        print_l(message)
         print_s('IN')
 
     def trade_update(self, message):

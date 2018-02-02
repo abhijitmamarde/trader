@@ -96,7 +96,7 @@ class StockDB:
                         :op,
                         :hi,
                         :lo,
-                        :cl)'''.format(tn=ohlc_data.symbol), \
+                        :cl)'''.format(tn=tablename), \
                         {'t':data.timestamp,
                          'l':data.ltp,
                          'a':data.atp,
