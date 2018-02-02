@@ -90,7 +90,7 @@ class OHLCLog:
                 writer.writeheader()
         self.csv_dict[symbol] = filename
 
-    def logohlc(self, ohlc_data):
+    def logohlc(self, ohlc_dict):
         try:
             with open(self.csv_dict[ohlc.symbol], 'a') as f:
                 fields = ['time', 'symbol', 'ltp', 'atp',
@@ -98,7 +98,7 @@ class OHLCLog:
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writerow(ohlc_data)
         except Exception as e:
-            print("Error while adding OHLC record for", ohlc_data.symbol)
+            print("Error while adding OHLC record for", ohlc_data['symbol'])
             print(e)
             raise
 

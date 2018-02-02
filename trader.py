@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from gann import GannAngles
-from ohlc import OHLC
-from OHLClogger import OHLCLog as logger
+from ohlc import OHLC, OHLClog
 import pickle
 import requests
 from requests.exceptions import HTTPError
@@ -23,7 +22,7 @@ class TradeCenter():
         self.stock_dict = {}
         self.running = False
         self.trading = False
-        self.loggers = {}
+        self.ohlc_logger = OHLCLog()
         # init db in listen() for thread compatibility
         self.db = None
 
@@ -273,7 +272,8 @@ class TradeCenter():
         for inst in insts:
             # Create a OHLC logger for the stock
             sym = inst.symbol.upper()
-            self.loggers[sym] = logger(sym)
+            self.ohlc_logger.create_ohlc_file(sym)
+            # Temporary stock addition
             self.stock_dict[sym] = GannAngles(inst)
 
     def quote_handler(self, message):
@@ -337,7 +337,7 @@ class TradeCenter():
         sym = message['symbol']
 
         dat = OHLC.fromquote(message)
-        self.loggers[sym].logOHLC(dat.as_dict())
+        self.ohlc_logger.logohlc(dat.as_dict)
 
         order = ''
         if not self.trading:
