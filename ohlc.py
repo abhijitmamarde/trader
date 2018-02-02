@@ -1,16 +1,19 @@
 from datetime import datetime
 
 class OHLC:
-    def __init__(self, timestamp=0 , sym='0', ltp=0.0, atp=0.0, op=0.0, hi=0.0, lo=0.0, cl=0.0):
-        "timestamp: epochtime , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
+    fmt= '%Y-%m-%dT%H:%M:%S.%f%z'
+
+    def __init__(self, epoch=0 , sym='0', ltp=0.0, atp=0.0, op=0.0, hi=0.0, lo=0.0, cl=0.0):
+        "epoch: epoch in ms , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
         self.symbol = str(sym).upper()
-        self.epoch = timestamp
+        self.epoch = epoch
         self.ltp = ltp
         self.atp = atp
         self.op = op
         self.hi = hi
         self.lo = lo
         self.cl = cl
+
 
     def __str__(self):
         return "{t} | {s} | {l} | {a} | {o} | {c} | {h} | {w}".\
@@ -23,6 +26,7 @@ class OHLC:
                        w=self.lo,
                        c=self.cl)
 
+    @property
     def as_dict(self):
         return {'time':str(self.timestamp),
                 'symbol':self.symbol,
@@ -33,8 +37,12 @@ class OHLC:
                 'low':self.lo,
                 'close':self.cl}
 
+    @property
     def as_tuple(self):
-        'For use by DB insertion methods. Omits Symbol'
+        '''Returns a tuple in
+
+        (time_in_ISO, ltp, atp, high, low, open, close)
+        Omits Symbol for ease of use with db storage methods'''
         return (str(self.timestamp), self.ltp,
                 self.atp, self.op, self.hi, self.lo, self.cl)
 
@@ -51,7 +59,8 @@ class OHLC:
 
     @property
     def timestamp(self):
-        'Get epoch as local date-time in sqlite compatible format'
-        fmt='%Y-%m-%dT%H:%M:%S.%f'
+        'Get epoch as local date-time in ISO'
+        fmt='%Y-%m-%dT%H:%M:%S.%f%z'
         return datetime.fromtimestamp(self.epoch/1000.0).strftime(fmt)
+    
 
