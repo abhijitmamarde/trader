@@ -1,16 +1,19 @@
 import csv
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 import os
 
 
 
 class OHLC:
-    fmt= '%Y-%m-%dT%H:%M:%S.%f%z'
-
+    fmt= '%Y-%m-%d %H:%M:%S.%f'
+    ts_fmt = '%Y-%m-%d %H:%M:%S'
     def __init__(self, epoch=0 , sym='0', ltp=0.0, atp=0.0, op=0.0, hi=0.0, lo=0.0, cl=0.0):
-        "epoch: epoch in ms , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
+        "epoch: any UTC based timestamp , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
         self.symbol = str(sym).upper()
-        self.epoch = epoch
+        if len(str(epoch)) > 12:
+            self.epoch = epoch/1000
+        else:
+            self.epoch = epoch
         self.ltp = ltp
         self.atp = atp
         self.op = op
@@ -21,7 +24,7 @@ class OHLC:
 
     def __str__(self):
         return "{t} | {s} | {l} | {a} | {o} | {c} | {h} | {w}".\
-                format(t=self.timestamp,
+                format(t=self.localtime,
                        s=self.symbol,
                        l=self.ltp,
                        a=self.atp,
@@ -32,7 +35,7 @@ class OHLC:
 
     @property
     def as_dict(self):
-        return {'time':str(self.timestamp),
+        return {'time':self.epoch,
                 'symbol':self.symbol,
                 'ltp':self.ltp,
                 'atp':self.atp,
@@ -45,9 +48,9 @@ class OHLC:
     def as_tuple(self):
         '''Returns a tuple in
 
-        (time_in_ISO, ltp, atp, high, low, open, close)
+        (epoch, ltp, atp, high, low, open, close)
         Omits Symbol for ease of use with db storage methods'''
-        return (str(self.timestamp), self.ltp,
+        return (self.epoch, self.ltp,
                 self.atp, self.op, self.hi, self.lo, self.cl)
 
     @classmethod
@@ -62,14 +65,15 @@ class OHLC:
                    float(quote['close']))
 
     @property
-    def timestamp(self):
+    def localtime(self):
         'Get epoch as local date-time in ISO'
-        return datetime.fromtimestamp(self.epoch/1000.0).strftime(self.fmt)
+        ts = datetime.fromtimestamp(self.epoch).strftime(self.fmt)
+        return str(ts[:22])
 
     def fromISO(self, iso_time):
         'Set epoch from local date-time in ISO'
         fmt='%Y-%m-%dT%H:%M:%S.%f'
-        self.epoch = datetime.strptime(iso_time, fmt).timestamp() * 1000.0
+        self.epoch = datetime.strptime(iso_time, fmt).timestamp()
 
         
 class OHLCLog:
@@ -102,6 +106,7 @@ class OHLCLog:
             print(e)
             raise
 
+    @classmethod
     def readohlc(self, filename=None, numrows=0):
         'Returns specified number of rows from filename.csv as a list of OHLC objects'
         data = []
@@ -133,11 +138,37 @@ class OHLCLog:
         finally:
             return data
 
-def test():
-    log = OHLCLog()
-    data = log.readohlc('NIFTY18FEB10800CEOHLC02Feb18.csv')
-    print('Total records retrieved:', len(data))
+
+def test_ohlc():
+    test_quote = {'bids': [{'orders': 2, 'price': 97.5, 'quantity': 150},],
+        'high': 111.85,
+        'asks': [{'orders': 2, 'price': 97.75, 'quantity': 225}],
+        'vtt': 3107850.0,
+        'open': 100.0,
+        'timestamp': '1517377333560',
+        'ltp': 97.85,
+        'total_buy_qty': 651975,
+        'spot_price': 11019.55,
+        'oi': 2665875.0,
+        'upper_circuit': 229.55,
+        'symbol': 'NIFTY18FEB11200CE',
+        'yearly_low': None,
+        'lower_circuit': 1.95,
+        'exchange': 'NSE_FO',
+        'low': 95.0,
+        'instrument': None,
+        'close': 115.75,
+        'ltt': 1517377332000,
+        'total_sell_qty': 221775,
+        'atp': 103.58}
+    data = OHLC.fromquote(test_quote)
+    print("As dict\n", data.as_dict)
+    print("As tuple\n", data.as_tuple)
+    print("Time in ISO Format\n", data.localtime)
+    print("Time in epoch\n", data.epoch)
+    print(datetime.fromtimestamp(data.epoch, tz=timezone.utc))
+    print("__str__ \n", data)
 
 
 if __name__ == '__main__':
-    test()
+    test_ohlc()

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from gann import GannAngles
-from ohlc import OHLC, OHLClog
+from ohlc import OHLC, OHLCLog
 import pickle
 import requests
 from requests.exceptions import HTTPError
@@ -12,7 +12,7 @@ from utils import TradeStrategy
 
 
 
-class TradeCenter():
+class TradeCenter:
 
     def __init__(self, config=None):
         print_l("Initializing...")
@@ -480,4 +480,6 @@ class TradeCenter():
         self.running = False
         print_l('Shut Down Complete.')
         print_s()
+
+
 

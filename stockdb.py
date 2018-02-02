@@ -1,13 +1,13 @@
 from bunch import Bunch
 import csv
 from datetime import timedelta, datetime
-from ohlc import OHLC
+from ohlc import OHLC, OHLCLog
 import pickle
 import sqlite3
 from sqlite3 import OperationalError
 import time
 
-ohlc_table_fields = ({'name':'ts', 'type':'DATE'},
+ohlc_table_fields = ({'name':'ts', 'type':'DATETIME'},
                      {'name':'ltp', 'type':'REAL'},
                      {'name':'atp', 'type':'REAL'},
                      {'name':'open', 'type':'REAL'},
@@ -21,7 +21,7 @@ class StockDB:
     sqlite_file = "trade_db.sqlite"
     conn = None
     cursor = None
-    tables_made = []
+    tables = []
     initialized = False
 
 
@@ -41,7 +41,7 @@ class StockDB:
 
         result = self.cursor.fetchall()
         for r in result:
-            self.tables_made.append(r[0])
+            self.tables.append(r[0])
 
         self.initialized = True
 
@@ -74,7 +74,7 @@ class StockDB:
                                                           ct=col['type']))
 
         if self.table_exists(tablename):
-            self.tables_made.append({tablename:tabletype})
+            self.tables.append(tablename)
             return True
         return False
 
@@ -97,7 +97,7 @@ class StockDB:
                         :hi,
                         :lo,
                         :cl)'''.format(tn=tablename), \
-                        {'t':data.timestamp,
+                        {'t':data.localtime,
                          'l':data.ltp,
                          'a':data.atp,
                          'op':data.op,
@@ -122,16 +122,27 @@ class StockDB:
 
         return True
 
+    def run_query(self, query=None):
+        if query == None:
+            return None
+        try:
+            with self.conn:
+                self.cursor.execute(query)
+                return self.cursor.fetchall()
+        except sqlite3.OperationalError as e:
+            if 'no such table' in e.args[0]:
+                 print("Table does not exist")
+        return None
 
     def summary(self):
-        'Prints list of all tables with basic info about them'
-        print('summary')
-        print(self.tables_made)
-        for t in self.tables_made:
+        'Prints all tables with first 5 entries'
+        for t in self.tables:
+            print('First 5 records in', t)
             try:
                 with self.conn:
                     self.cursor.execute('''SELECT * FROM {}'''.format(t))
-                    records = self.cursor.fetchmany(2)
+                    records = self.cursor.fetchmany(5)
+                    print([d[0] for d in self.cursor.description])
                 for r in records:
                     print(r)
             except Exception as e:
@@ -141,59 +152,25 @@ class StockDB:
     def close(self):
         self.conn.close()
 
-
-def csv_to_db():
-    db = StockDB()
-    db.initialize()
-    print("creating tables")
-    dat = {}
-    names = []
-    ohlc_names = ['OHLC24JAN18.csv',
-                  'OHLC25JAN18.csv']
-
-    start_time = datetime.now()
-    ctr = 0
-    for fname in ohlc_names:
-        with open(fname, 'r') as csvfile:
-            readCSV = csv.reader(csvfile, delimiter=',')
-            headers = next(readCSV)
-            for row in readCSV:
-                if len(row)<1:
-                    continue
-                if row[1] not in names:
-                    names.append(row[1])
-                    dat[row[1]] = []
-                tmp = OHLC(*row)
-                tmp.timestamp = fname[4:11]+'-'+tmp.timestamp
-                dat[row[1]].append(tmp)
-                ctr += 1
-    print("Loaded {} records for {} stocks.".format(len(dat), len(names)))
-    print("Adding to DB")
-
-    for name in names:
-        print("Creating table for {}".format(name))
-        db.create_ohlc_table(name)
-    for key in dat:
-        print("Inserting records for {}".format(key))
-        for obj in dat[key]:
-            db.add_ohlc(obj)
-            ctr +=1
-        diff = int((datetime.now() - start_time).total_seconds())
-        print("Added {} records to {} in {} seconds".format(ctr, key, diff))
-        input("Press Enter to continue")
-        ctr = 0
-        start_time = datetime.now()
-
-    db.close()
+    def load_ohlc_from_csv(self, ohlc_csv_file):
+        data = OHLCLog.readohlc(ohlc_csv_file)
+        sym = data[0].symbol
+        self.create_table(sym, table_types.ohlc)
+        for item in data:
+            self.add_data(sym, table_types.ohlc, item)
+        
 
 
 def db_test():
     db = StockDB()
     db.initialize(':memory:')
-    with open('samples.pkl', 'rb') as f:
-        quote = pickle.load(f)
-    data = OHLC.fromquote(quote)
+    db.load_ohlc_from_csv('NIFTY18FEB10800CEOHLC02Feb18.csv')
     db.summary()
+    for t in db.tables:
+        db.run_query('DROP TABLE IF EXISTS {}'.format(t))
+        db.tables.remove(t)
+    db.summary()
+    db.close()
 
 if __name__ == '__main__':
     db_test()
