@@ -1,4 +1,8 @@
-from datetime import datetime
+import csv
+from datetime import datetime, date
+import os
+
+
 
 class OHLC:
     fmt= '%Y-%m-%dT%H:%M:%S.%f%z'
@@ -60,7 +64,80 @@ class OHLC:
     @property
     def timestamp(self):
         'Get epoch as local date-time in ISO'
-        fmt='%Y-%m-%dT%H:%M:%S.%f%z'
-        return datetime.fromtimestamp(self.epoch/1000.0).strftime(fmt)
-    
+        return datetime.fromtimestamp(self.epoch/1000.0).strftime(self.fmt)
 
+    def fromISO(self, iso_time):
+        'Set epoch from local date-time in ISO'
+        fmt='%Y-%m-%dT%H:%M:%S.%f'
+        self.epoch = datetime.strptime(iso_time, fmt).timestamp() * 1000.0
+
+        
+class OHLCLog:
+    'Reads/Writes OHLC data in csv file. The symbol is used as the filename'
+    def __init__(self, symbol=''):
+        self.tod = date.today()
+        self.csv_dict = {}
+        
+    def create_ohlc_file(self, symbol=None):
+        if symbol == None:
+            return
+        filename = "OHLC-{}-{}.csv".format(symbol, tod.strftime("%d%b%y"))
+        if os.path.exists('./'+self.filename) == False:
+            with open(self.filename, 'w') as f:
+                fields = ['time', 'symbol', 'ltp', 'atp',
+                          'open', 'high', 'low', 'close']
+                writer = csv.DictWriter(f, fieldnames=fields)
+                writer.writeheader()
+        self.csv_dict[symbol] = filename
+
+    def logohlc(self, ohlc_data):
+        try:
+            with open(self.csv_dict[ohlc.symbol], 'a') as f:
+                fields = ['time', 'symbol', 'ltp', 'atp',
+                          'open', 'high', 'low', 'close']
+                writer = csv.DictWriter(f, fieldnames=fields)
+                writer.writerow(ohlc_data)
+        except Exception as e:
+            print("Error while adding OHLC record for", ohlc_data.symbol)
+            print(e)
+            raise
+
+    def readohlc(self, filename=None, numrows=0):
+        'Returns specified number of rows from filename.csv as a list of OHLC objects'
+        data = []
+        try:
+            with open(filename, 'r') as f:
+                reader = csv.DictReader(f)
+                ctr = 0
+                for row in reader:
+                    if len(row) < 1:
+                        continue
+                    if ctr >= numrows and numrows > 0:
+                        return data
+                    o = OHLC()
+                    o.fromISO(row['time'])
+                    o.symbol = row['symbol']
+                    o.ltp = row['ltp']
+                    o.atp = row['atp']
+                    o.op = row['open']
+                    o.hi = row['high']
+                    o.lp = row['low']
+                    o.cl = row['close']
+                    data.append(o)
+                    if numrows > 0:
+                        ctr += 1
+        except FileNotFoundError as e:
+            print("ERROR - {} File not found! ".format(filename))
+            print("\tPlease ensure filename is correct and")
+            print("\tincludes the extension as well (*.csv)")
+        finally:
+            return data
+
+def test():
+    log = OHLCLog()
+    data = log.readohlc('NIFTY18FEB10800CEOHLC02Feb18.csv')
+    print('Total records retrieved:', len(data))
+
+
+if __name__ == '__main__':
+    test()
