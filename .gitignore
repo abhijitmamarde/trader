@@ -1,10 +1,17 @@
 *.pyc
+
 *.swp
 
+
 *.txt
+
 *.pkl
+
 *.sqlite
+
+*.sqlite-journal
 *.csv
+
 
 test.py
 
