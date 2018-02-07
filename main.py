@@ -1,14 +1,16 @@
-from bunch import Bunch
 from datetime import datetime
 from trader import *
-from utils import load_config, is_trade_active
+from utils import load_config
 
 config = None
+
+
 class login_codes:
-    success=1
-    fail=0
-    token_invalid=2
-    other=3
+    success = 1
+    fail = 0
+    token_invalid = 2
+    other = 3
+
 
 def offline():
     ts = TradeCenter(config)
@@ -31,10 +33,10 @@ def main():
     config = load_config()
     now = datetime.now()
     trade_end = datetime(year=now.year,
-                           month=now.month,
-                           day=now.day,
-                           hour=15,
-                           minute=30)
+                         month=now.month,
+                         day=now.day,
+                         hour=15,
+                         minute=30)
     if trade_end > now:
         online()
     else:
@@ -42,5 +44,5 @@ def main():
 
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     main()
