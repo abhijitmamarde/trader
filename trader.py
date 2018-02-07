@@ -44,16 +44,6 @@ class TradeCenter:
         self.register_handlers()
         self.register_stocks()
 
-        print_s()
-        rep = input("Enable stock ordering?(y/n)")
-        if rep.upper() == 'Y':
-            self.trading = True
-            print_l("Trading Enabled. Will place orders.")
-        else:
-            print_l("Trading Disabled. Listening only.")
-        print_s()
-
-
 
     def start_listener(self):
         try:
