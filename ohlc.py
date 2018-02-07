@@ -5,8 +5,7 @@ import os
 
 
 class OHLC:
-    fmt= '%Y-%m-%d %H:%M:%S.%f'
-    ts_fmt = '%Y-%m-%d %H:%M:%S'
+    fmt= '%Y-%m-%d %H:%M:%S'
     def __init__(self, epoch=0 , sym='0', ltp=0.0, atp=0.0, op=0.0, hi=0.0, lo=0.0, cl=0.0):
         "epoch: any UTC based timestamp , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
         self.symbol = str(sym).upper()
@@ -71,40 +70,48 @@ class OHLC:
         return str(ts[:22])
 
     def fromISO(self, iso_time):
-        'Set epoch from local date-time in ISO'
-        fmt='%Y-%m-%dT%H:%M:%S.%f'
+        '''Set epoch from time format =  %Y-%m-%dT%H:%M:%S'''
+        fmt='%Y-%m-%dT%H:%M:%S'
         self.epoch = datetime.strptime(iso_time, fmt).timestamp()
 
-        
+
 class OHLCLog:
-    'Reads/Writes OHLC data in csv file. The symbol is used as the filename'
+    ''' DEPRECATED in favor of python's logging.
+
+    Use TradeCenter.init_logging() instead.
+    Reads/Writes OHLC data in csv file.
+    The symbol is used as the filename'''
+
     def __init__(self, symbol=''):
         self.tod = date.today()
         self.csv_dict = {}
-        
+
+
     def create_ohlc_file(self, symbol=None):
         if symbol == None:
             return
-        filename = "OHLC-{}-{}.csv".format(symbol, tod.strftime("%d%b%y"))
-        if os.path.exists('./'+self.filename) == False:
-            with open(self.filename, 'w') as f:
+        filename = "OHLC-{}-{}.csv".format(symbol, self.tod.strftime("%d%b%y"))
+        if os.path.exists('./'+filename) == False:
+            with open(filename, 'w') as f:
                 fields = ['time', 'symbol', 'ltp', 'atp',
                           'open', 'high', 'low', 'close']
                 writer = csv.DictWriter(f, fieldnames=fields)
                 writer.writeheader()
         self.csv_dict[symbol] = filename
 
+
     def logohlc(self, ohlc_dict):
         try:
-            with open(self.csv_dict[ohlc.symbol], 'a') as f:
+            with open(self.csv_dict[ohlc_dict['symbol']], 'a') as f:
                 fields = ['time', 'symbol', 'ltp', 'atp',
                           'open', 'high', 'low', 'close']
                 writer = csv.DictWriter(f, fieldnames=fields)
-                writer.writerow(ohlc_data)
+                writer.writerow(ohlc_dict)
         except Exception as e:
-            print("Error while adding OHLC record for", ohlc_data['symbol'])
+            print("Error while adding OHLC record for", ohlc_dict['symbol'])
             print(e)
             raise
+
 
     @classmethod
     def readohlc(self, filename=None, numrows=0):

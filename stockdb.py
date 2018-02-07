@@ -158,17 +158,11 @@ class StockDB:
         self.create_table(sym, table_types.ohlc)
         for item in data:
             self.add_data(sym, table_types.ohlc, item)
-        
 
 
 def db_test():
     db = StockDB()
     db.initialize(':memory:')
-    db.load_ohlc_from_csv('NIFTY18FEB10800CEOHLC02Feb18.csv')
-    db.summary()
-    for t in db.tables:
-        db.run_query('DROP TABLE IF EXISTS {}'.format(t))
-        db.tables.remove(t)
     db.summary()
     db.close()
 
