@@ -135,28 +135,6 @@ class Configurator(Frame):
         self.add_button.grid(row=6, column=1, sticky='ewns', padx=5, pady=10)
 
         # ==================================================
-        # Selected scrips Frame
-        # ==================================================
-        for i in range(7):
-            self.scrips_frame.rowconfigure(i, pad=20)
-
-        for i in range(3):
-            self.scrips_frame.columnconfigure(i, pad=5)
-        self.stock_label = Label(self.scrips_frame, text='Currently Selected:')
-        self.stock_label.grid(columnspan=5)
-        self.stock_list = Listbox(self.scrips_frame, height=8)
-        self.stock_list.grid(row=1, columnspan=2, rowspan=3,
-                             sticky='ewns', padx=5, pady=5)
-        remove_scrip_button = Button(self.scrips_frame, text='Remove selected',
-                                     command=lambda self=self:
-                                     self.stock_list.delete(ANCHOR))
-        remove_scrip_button.grid(row=4, columnspan=2, sticky='ewns', padx=5, pady=5)
-        remove_all_button = Button(self.scrips_frame, text='Remove all',
-                                   command=lambda self=self:
-                                   self.stock_list.delete(0, END))
-        remove_all_button.grid(row=5, columnspan=2, sticky='ewns', padx=5, pady=5)
-
-        # ==================================================
         # Current symbol info
         # ==================================================
         for i in range(8):
@@ -197,6 +175,28 @@ class Configurator(Frame):
         info_close_label.grid(row=6, column=0, sticky='e')
         self.info_close = Label(info_frame, text='')
         self.info_close.grid(row=6, column=1, sticky='w')
+
+        # ==================================================
+        # Selected scrips Frame
+        # ==================================================
+        for i in range(7):
+            self.scrips_frame.rowconfigure(i, pad=20)
+
+        for i in range(3):
+            self.scrips_frame.columnconfigure(i, pad=5)
+        self.stock_label = Label(self.scrips_frame, text='Currently Selected:')
+        self.stock_label.grid(columnspan=5)
+        self.stock_list = Listbox(self.scrips_frame, height=8)
+        self.stock_list.grid(row=1, columnspan=2, rowspan=3,
+                             sticky='ewns', padx=5, pady=5)
+        remove_scrip_button = Button(self.scrips_frame, text='Remove selected',
+                                     command=lambda self=self:
+                                     self.stock_list.delete(ANCHOR))
+        remove_scrip_button.grid(row=4, columnspan=2, sticky='ewns', padx=5, pady=5)
+        remove_all_button = Button(self.scrips_frame, text='Remove all',
+                                   command=lambda self=self:
+                                   self.stock_list.delete(0, END))
+        remove_all_button.grid(row=5, columnspan=2, sticky='ewns', padx=5, pady=5)
 
         # ==================================================
         # App buttons
@@ -307,6 +307,17 @@ class Configurator(Frame):
             messagebox.showerror('Error',
                                  '{} is already in loading list'.
                                  format(txt))
+
+    def remove_stock(self, stock_name):
+        sym = self.stock_list.get(ANCHOR)
+        self.stock_list.delete(ANCHOR)
+        self.ts.remove_stocks(sym)
+    
+    def remove_all(self):
+        syms = self.stock_list.get(0, END)
+        self.stock_list.delete(0, END)
+        for s in syms:
+            self.ts.remove_stock(s)
 
     def set_info(self, feed=None):
         if feed is None:

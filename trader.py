@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from gann import GannAngles
+import logging
 from ohlc import OHLC
 import pickle
 from requests.exceptions import HTTPError
@@ -9,16 +10,18 @@ import threading
 from upstox_api.api import *
 from utils import print_l, print_s, Actions, is_trade_active
 
+LOADED = []
+
 
 class TradeCenter:
     def __init__(self, config=None):
-        print_l("Initializing...")
         self.client = None
         self.condition = threading.Condition()
         self.indices = ['NSE_FO']
         self.stock_dict = {}
         self.listening = False
         self.trading = False
+        self.logger = None
         # init db in listen() for thread compatibility
         self.db = None
 
@@ -27,9 +30,12 @@ class TradeCenter:
             print_l('No config provided. Will be unable to sign in.')
         self.config = config
 
+        self.setup_logger()
+
         self.quote_queue = []
         self.trade_queue = []
         self.order_queue = []
+
 
 
     def run(self, offline=False):
@@ -66,14 +72,13 @@ class TradeCenter:
 
     def listen(self):
         'Checks update queues and calls the required update method'
-        # Extra sleep so main thread can finish print statements
-        time.sleep(1.0)
-        # DB init here for thread compatibility.
         self.db = StockDB()
         self.db.initialize('stock_db.sqlite')
+        global LOADED
         for key in self.stock_dict:
             if self.db.create_table(key, table_types.ohlc):
                 print_l('Table verified for: ' + str(key))
+                LOADED.append(key)
         print_l('Receiving updates...')
         while self.listening:
             try:
@@ -82,7 +87,11 @@ class TradeCenter:
                 if len(self.quote_queue) > 0:
                     for q in self.quote_queue:
                         o = OHLC.fromquote(q)
-                        self.db.add_data(q['symbol'], table_types.ohlc, o)
+                        if o.symbol in LOADED:
+                            self.db.add_data(q['symbol'], table_types.ohlc, o)
+                        else:
+                            self.db.create_table(o.symbol, table_types.ohlc)
+                            LOADED.append(o.symbol)
                         self.quote_update(q)
                         self.quote_queue.remove(q)
 
@@ -134,12 +143,34 @@ class TradeCenter:
         try:
             inst = self.client.get_instrument_by_symbol('NSE_FO', sym)
         except Exception as e:
+            # TODO Figure out exceptions
             print(e)
+
         try:
             self.client.subscribe(inst, LiveFeedType.Full)
-        except Exception as e:
-            print(e)
+            self.client.subscribe(inst, LiveFeedType.Full)
+        except HTTPError as e:
+            self.client.unsubscribe(inst, LiveFeedType.Full)
+
         self.stock_dict[sym.upper()] = GannAngles(inst)
+
+
+    def remove_stocks(self, sym=None):
+        '''Unsubscribe from a live feed'''
+        unsub = None
+        try:
+            unsub = self.stock_dict.pop(sym)
+        except KeyError as e:
+            print('Stock not tracked by program.')
+            return
+
+        try:
+            self.client.unsubscribe(unsub.instrument, LiveFeedType.Full)
+        except TypeError as e:
+            print('No such stock to unsub from')
+        except Exception as e:
+            # TODO figure out exceptions
+            pass
 
 
     def quote_handler(self, message):
@@ -205,9 +236,7 @@ class TradeCenter:
         try:
             action, args = self.stock_dict[sym].quote_update(message)
         except KeyError:
-            print('Update for unsubscribed stock/symbol, unsubscribing')
-            self.client.unsubscribe(quote_update['instrument'],
-                                    LiveFeedType.Full)
+            print('{} Not in subscribed stock list'.format(sym))
 
         order = ''
         if action == Actions.buy and args is not None:
@@ -340,6 +369,24 @@ class TradeCenter:
                     f.write("\n-----------------\n")
 
 
+    def setup_logger(self):
+
+        logger = logging.getLogger('tradecenter')
+        logger.setLevel(logging.DEBUG)
+        logname = 'debug.log'
+        formatter = logging.Formatter(style='{')
+
+        fh = logging.FileHandler(logname)
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(formatter)
+
+        sh = logging.StreamHandler()
+        sh.setFormatter(formatter)
+
+        # TODO - Continue here
+
+
+
     def sign_in(self):
         '''Login to Upstox.'''
         #
@@ -372,10 +419,9 @@ class TradeCenter:
                 client = Upstox(self.config['api_key'], token)
             except HTTPError as e:
                 err = e.args[0]
-                # Need to get new security token and keys
+                # Same error is raised both for token entered incorrectly and expired token
                 if 'Invalid' in err and '401' in err:
-                    print_s()
-                    print_l("Credentials expired")
+                    print('Invalid token entered')
                     token = self.save_new_tokens(self.config['api_key'],
                                                  self.config['api_secret'])
                 else:

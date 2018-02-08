@@ -4,11 +4,11 @@ from math import sqrt
 from ohlc import OHLC
 from upstox_api.api import TransactionType, OrderType, ProductType, DurationType
 from utils import is_trade_active, round_off, Actions, print_s, print_l
-from utils import TradeStrategy
+from strategy import Strategy
 
 
 
-class GannAngles(TradeStrategy):
+class GannAngles(Strategy):
 
     test = False
     gann_angles = [0.02, 0.04, 0.08, 0.1, 0.15, 0.25, 0.35,
@@ -25,8 +25,7 @@ class GannAngles(TradeStrategy):
     ordered = False
     order_attempts = 0
     max_attempts = 5
-    orders = []
-    trades = []
+
 
     def initialize(self, quote_info, test=False):
         self.ohlc = OHLC().fromquote(quote_info)
@@ -41,6 +40,7 @@ class GannAngles(TradeStrategy):
             print_l('Buy Trigger = {}'.format(self.res_trigger))
             print_l('Support Trigger = {}'.format(self.sup_trigger))
             print_s()
+
 
     def quote_update(self, quote_info):
         if self.init is False:
@@ -67,6 +67,7 @@ class GannAngles(TradeStrategy):
             self.calc_resistance(self.ohlc.ltp)
         return Actions.none, None
 
+
     def order_update(self, order_info):
         if self.not_rejected(order_info['status']):
             if order_info['transaction_type'] == 'B':
@@ -82,6 +83,7 @@ class GannAngles(TradeStrategy):
             print_l('Order rejected, {} attempts remaining'.format(self.max_attempts -
                     self.order_attempts))
         self.orders.append(order_info)
+
 
     def trade_update(self, trade_info):
         if trade_info['transaction_type'] == 'S':
@@ -105,6 +107,7 @@ class GannAngles(TradeStrategy):
             support.append(tmp)
         self.sup_vals = support
         self.sup_trigger = support[5]
+
 
     def buy_args(self):
         '''
@@ -138,8 +141,8 @@ class GannAngles(TradeStrategy):
                 round_off(self.res_vals[-1] - self.res_vals[4]),
                 None
                 )
-
         return args
+
 
     def mod_sl_args(self):
         sl = self.stoploss_order
@@ -147,6 +150,7 @@ class GannAngles(TradeStrategy):
                 self.sup_trigger)
         self.modifying = True
         return args
+
 
     def not_rejected(self, status):
         if status == 'cancelled' or status == 'rejected':
