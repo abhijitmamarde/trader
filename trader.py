@@ -1,4 +1,5 @@
 from datetime import datetime, date
+from gann import GannAngles
 from ohlc import OHLC
 import pickle
 from requests.exceptions import HTTPError
@@ -42,7 +43,6 @@ class TradeCenter:
         self.sign_in()
         self.register_masters()
         self.register_handlers()
-        self.register_stocks()
 
 
     def start_listener(self):
@@ -128,13 +128,19 @@ class TradeCenter:
             print_l(e.args[0])
 
 
-    def register_stocks(self):
-        '''Subscribes to stocks for live feed.
-        
-        Additionally creates a logger for each stock subscribed in
-        self.loggers[symbol]
-        '''
-        pass
+    def register_stocks(self, sym=None):
+        '''Subscribes to stocks for live feed.'''
+        inst = None
+        try:
+            inst = self.client.get_instrument_by_symbol('NSE_FO', sym)
+        except Exception as e:
+            print(e)
+        try:
+            self.client.subscribe(inst, LiveFeedType.Full)
+        except Exception as e:
+            print(e)
+        self.stock_dict[sym.upper()] = GannAngles(inst)
+
 
     def quote_handler(self, message):
         '''Addes message to queue for processing.
