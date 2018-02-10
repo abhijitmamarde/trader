@@ -1,12 +1,13 @@
-from datetime import datetime, date
-from gann import GannAngles
+'''Module docstring'''
 import logging
-from ohlc import OHLC
 import pickle
-from requests.exceptions import HTTPError
-from stockdb import StockDB, table_types
 import time
 import threading
+from datetime import datetime, date
+from gann import GannAngles
+from ohlc import OHLC
+from requests.exceptions import HTTPError
+from stockdb import StockDB, table_types
 from upstox_api.api import *
 from utils import print_l, print_s, Actions, is_trade_active
 
@@ -14,6 +15,7 @@ LOADED = []
 
 
 class TradeCenter:
+    '''Upstox client wrapper for convenience'''
     def __init__(self, config=None):
         self.client = None
         self.condition = threading.Condition()
@@ -37,12 +39,13 @@ class TradeCenter:
         self.order_queue = []
 
 
-
     def run(self, offline=False):
         '''Executes boilerplate
         
         Initiates listener for updates on a separate thread'''
-        if self.config is None:
+        if offline:
+            pass
+        elif self.config is None:
             print_s()
             print_l("No config provided. Unable to sign in.")
             return
@@ -95,17 +98,15 @@ class TradeCenter:
                         self.quote_update(q)
                         self.quote_queue.remove(q)
 
-                if len(self.order_queue) > 0:
+                if self.order_queue > 0:
                     self.order_update(self.order_queue.pop())
-                if len(self.trade_queue) > 0:
+                if self.trade_queue > 0:
                     self.trade_update(self.trade_queue.pop())
                 time.sleep(0.2)
             except KeyboardInterrupt as e:
                 self.listening = False
             if not is_trade_active():
                 self.listening = False
-#        else:
-#            self.close_ops()
 
 
     def register_masters(self, masters=["nse_fo", 'nse_index']):
