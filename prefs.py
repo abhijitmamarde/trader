@@ -47,7 +47,6 @@ class Configurator(Frame):
     def __init__(self, master=None):
         Frame.__init__(self, master)
         self.ts = TradeCenter(load_config())
-        self.ts.run()
         self.master = master
         self.resultstock = ''
         self.strike_prices = []
@@ -212,6 +211,20 @@ class Configurator(Frame):
                                           variable=self.ts.trading)
         self.enable_trading.grid(padx=4, pady=4, row=10, column=2,
                                  columnspan=2, sticky='ewns')
+        if self.ts.sign_in():
+            self.ts.register_masters()
+            self.ts.register_handlers()
+        else:
+            self.validation_link = Entry(self)
+            self.validation_link.grid(padx=4, pady=4, row=12, columnspan=10, sticky='ew')
+            self.api_entry = Entry(self)
+            self.api_entry.grid(padx=4, pady=4, row=13, columnspan=5, sticky='ew')
+            self.submit_button = Button(self, text='submit', command=self.set_token)
+            self.submit_button.grid(row=13, column=6, sticky='ewns')
+            url = self.ts.get_session_url()
+            self.validation_link.delete(0, END)
+            self.validation_link.insert(0, url)
+            self.validation_link['state'] = 'readonly'
 
 
     def center_window(self):
@@ -224,6 +237,7 @@ class Configurator(Frame):
 
         self.master.geometry('{}x{}+{}+{}'.format(w, h, x, y))
 
+
     def select_symbol(self, event):
         'Get usable strike prices for the symbol provided'
         inst = None
@@ -235,13 +249,13 @@ class Configurator(Frame):
         try:
             inst = self.ts.client.get_instrument_by_symbol(exch, choice)
         except Exception as e:
-            print('Unable to load the instrument ' + choice)
+            print('Unable to load info on ' + choice)
 
         try:
             feed = self.ts.client.get_live_feed(inst, LiveFeedType.Full)
-        except Exception as e:
-            print('unable to get live feed for' + sym)
-
+        except TypeError as e:
+            print('No live feed for ' + sym + ' available.')
+            return
 
         bp = round_off(feed['ltp'], 100)
         strike_prices = []
@@ -329,6 +343,17 @@ class Configurator(Frame):
         self.info_high['text'] = feed['high']
         self.info_low['text'] = feed['low']
         self.info_close['text'] = feed['close']
+
+    def set_token(self):
+        'Gives new token entered to TradeCenter for next login'
+        if self.ts.client is not None:
+            print('Already signed in.')
+            return
+        code = str(self.api_entry.get())
+        if self.ts.save_new_token(code):
+            print('Attempting sign in with new credentials...')
+            self.ts.sign_in()
+
 
     def close_app(self):
         self.ts.close_ops()

@@ -18,6 +18,7 @@ class TradeCenter:
     '''Upstox client wrapper for convenience'''
     def __init__(self, config=None):
         self.client = None
+        self.sesh = None
         self.condition = threading.Condition()
         self.indices = ['NSE_FO']
         self.stock_dict = {}
@@ -28,8 +29,7 @@ class TradeCenter:
         self.db = None
 
         if config is None:
-            print_s()
-            print_l('No config provided. Will be unable to sign in.')
+            print('No config provided. Will be unable to sign in.')
         self.config = config
 
         self.setup_logger()
@@ -37,21 +37,6 @@ class TradeCenter:
         self.quote_queue = []
         self.trade_queue = []
         self.order_queue = []
-
-
-    def run(self, offline=False):
-        '''Executes boilerplate
-        
-        Initiates listener for updates on a separate thread'''
-        if offline:
-            pass
-        elif self.config is None:
-            print_s()
-            print_l("No config provided. Unable to sign in.")
-            return
-        self.sign_in()
-        self.register_masters()
-        self.register_handlers()
 
 
     def start_listener(self):
@@ -391,12 +376,10 @@ class TradeCenter:
     def sign_in(self):
         '''Login to Upstox.'''
         #
-        #
         token_file = 'data.pkl'
         #
-        #
-        print_s()
         token = ''
+        client = None
         try:
             print_l('Loading previous credentials')
             with open(token_file, "rb") as f:
@@ -407,62 +390,54 @@ class TradeCenter:
                 pass
         except EOFError:
             print_l('Data file empty. New credentials needed.')
-            token = self.save_new_tokens(self.config['api_key'],
-                                         self.config['api_secret'])
-        print_s()
-        print_l("Signing in to upstox-")
-        max_tries = 5
-        tries = 1
-        client = None
-        while tries <= max_tries:
-            print_l('Attempt {}/{}'.format(tries, max_tries))
-            try:
-                client = Upstox(self.config['api_key'], token)
-            except HTTPError as e:
-                err = e.args[0]
-                # Same error is raised both for token entered incorrectly and expired token
-                if 'Invalid' in err and '401' in err:
-                    print('Invalid token entered')
-                    token = self.save_new_tokens(self.config['api_key'],
-                                                 self.config['api_secret'])
-                else:
-                    raise
-            except Exception as e:
-                print_s()
-                print_l("Unhandled Exception:")
-                print_l(e.args[0])
-                print_s()
-            finally:
-                if client is not None:
-                    print_l('Logged in successfully.')
-                    self.client = client
-                    return
-                tries += 1
-        else:
-            print_l("Unable to login to upstox. Quitting...")
-            return None
+        finally:
+            if not token:
+                return False
+
+        try:
+            client = Upstox(self.config['api_key'], token)
+        except HTTPError as e:
+            err = e.args[0]
+            # Similar error messages for incorrect and expired token. 'Invalid'
+            # is common word between them
+            if 'Invalid':
+                print('Invalid token entered')
+            else:
+                raise
+        finally:
+            if client is not None:
+                print_l('Logged in successfully.')
+                self.client = client
+                return True
+            return False
 
 
-    def save_new_tokens(self, key, secret):
-        'Gets and saves new credentials fom Upstox server'
-        print_l("New access token required")
-        sesh = Session(key)
-        sesh.set_redirect_uri("https://upstox.com")
-        sesh.set_api_secret(secret)
-        print("\nOpen below link to login to Upstox:\n")
-        url = sesh.get_login_url()
-        print(url)
-        auth_code = input("\nPlease enter the code from URL: ")
-        sesh.set_code(auth_code)
+    def save_new_token(self, auth_code):
+        if self.sesh is None:
+            return False
+        self.sesh.set_code(auth_code)
         print_l("Authenticating...")
-        access_token = str(sesh.retrieve_access_token())
+        access_token = str(self.sesh.retrieve_access_token())
         access_time = datetime.now()
-        print("Access token - {0} \nreceived at {1}".
-              format(access_token, access_time))
+        print('Access token received')
         with open('data.pkl', 'wb') as f:
             pickle.dump(access_token, f)
             pickle.dump(access_time, f)
-        return access_token
+        return True
+
+
+    def get_session_url(self):
+        print(self.config)
+        self.sesh = Session(self.config['api_key'])
+        self.sesh.set_redirect_uri("https://upstox.com")
+        self.sesh.set_api_secret(self.config['api_secret'])
+        try:
+            url = self.sesh.get_login_url()
+            return url
+        except HTTPError as e:
+            # No errors encountered yet...
+            print(e.args[0])
+            return None
 
 
     def close_ops(self):
