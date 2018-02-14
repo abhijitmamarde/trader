@@ -7,9 +7,9 @@ from datetime import datetime, date
 from gann import GannAngles
 from ohlc import OHLC
 from requests.exceptions import HTTPError
-from stockdb import StockDB, table_types
+from stockdb import StockDB, TABLE_TYPES
 from upstox_api.api import *
-from utils import print_l, print_s, Actions, is_trade_active
+from utils import print_l, print_s, ACTIONS, is_trade_active
 
 LOADED = []
 
@@ -27,47 +27,42 @@ class TradeCenter:
         self.logger = None
         # init db in listen() for thread compatibility
         self.db = None
-
-        if config is None:
-            print('No config provided. Will be unable to sign in.')
-        self.config = config
-
         self.setup_logger()
 
+        if config is None:
+            self.logger.error('No config provided. Will be unable to sign in.')
+        self.config = config
         self.quote_queue = []
         self.trade_queue = []
         self.order_queue = []
 
 
     def start_listener(self):
+        '''Opens websocket to upstox server and starts listener daemon'''
         try:
-            print_l('Opening Websocket to Upstox server')
+            self.logger.debug('Opening Websocket')
             self.client.start_websocket(True)
         except Exception as e:
-            print_l('Error while starting websocket - ')
-            print_l(e.args[0])
+            self.logger.exception('message')
 
         listener = threading.Thread(target=self.listen)
         try:
             listener.start()
+            self.logger.info('Receiving updates from upstox...')
             self.listening = True
         except Exception as e:
-            print_s()
-            print_l('Unexpected error')
-            print_l(e)
-            print_s()
+            self.logger.exception('message')
 
 
     def listen(self):
-        'Checks update queues and calls the required update method'
+        '''Checks update queues and calls the required update method'''
         self.db = StockDB()
         self.db.initialize('stock_db.sqlite')
         global LOADED
         for key in self.stock_dict:
-            if self.db.create_table(key, table_types.ohlc):
-                print_l('Table verified for: ' + str(key))
+            if self.db.create_table(key, TABLE_TYPES.ohlc):
+                self.logger.debug('Table verified for: ' + str(key))
                 LOADED.append(key)
-        print_l('Receiving updates...')
         while self.listening:
             try:
                 with self.condition:
@@ -75,10 +70,15 @@ class TradeCenter:
                 if len(self.quote_queue) > 0:
                     for q in self.quote_queue:
                         o = OHLC.fromquote(q)
+                        print(o)
                         if o.symbol in LOADED:
-                            self.db.add_data(q['symbol'], table_types.ohlc, o)
+                            self.db.add_data(q['symbol'], TABLE_TYPES.ohlc, o)
                         else:
-                            self.db.create_table(o.symbol, table_types.ohlc)
+                            self.logger.info('Update for unsubbed stock {}.'
+                                                .format(o.symbol))
+                            self.db.create_table(o.symbol, TABLE_TYPES.ohlc)
+                            self.logger.info('Created db table for {} ohlc data'
+                                             .format(o.symbol))
                             LOADED.append(o.symbol)
                         self.quote_update(q)
                         self.quote_queue.remove(q)
@@ -89,39 +89,36 @@ class TradeCenter:
                     self.trade_update(self.trade_queue.pop())
                 time.sleep(0.2)
             except KeyboardInterrupt as e:
-                self.listening = False
-            if not is_trade_active():
-                self.listening = False
+                self.logger.critical('Program broken')
+                self.close_ops()
 
 
     def register_masters(self, masters=["nse_fo", 'nse_index']):
-        'Boilerplate for adding exchanges to enable stock data subscriptions'
+        'Boilerplate for adding exchanges'
         try:
             print_s()
             print_l("Registering Indices")
             for ind in masters:
-                print(len(self.client.get_master_contract(ind)))
-        except AttributeError:
-            print_l("Masters preloaded/no valid masters provided")
+                num = len(self.client.get_master_contract(ind))
+                self.logger.debug('{} - downloaded {} scrips'.format(ind, num))
+        except AttributeError as e:
+            self.logger.debug("Masters preloaded/no valid masters provided")
         except HTTPError as e:
-            print_s()
-            print_l('Server error - ')
-            print_l(e.args[0])
-            print_s()
+            self.logger.error('Unable to load master contract')
+            self.logger.exception('message')
 
 
     def register_handlers(self):
         'Registers quote, order and trade handlers for Upstox updates'
         try:
             print_s()
-            print_l('Registering handlers')
+            self.logger.debug('Registering handlers')
             self.client.set_on_quote_update(self.quote_handler)
             self.client.set_on_order_update(self.order_handler)
             self.client.set_on_trade_update(self.trade_handler)
         except Exception as e:
-            print_l('Unable to register handlers - ')
-            print_l(e.args[0])
-
+            self.logger.error('Unable to register handlers - ')
+            self.logger.exception('message')
 
     def register_stocks(self, sym=None):
         '''Subscribes to stocks for live feed.'''
@@ -130,31 +127,38 @@ class TradeCenter:
             inst = self.client.get_instrument_by_symbol('NSE_FO', sym)
         except Exception as e:
             # TODO Figure out exceptions
-            print(e)
+            self.logger.exception('message')
 
         try:
-            self.client.subscribe(inst, LiveFeedType.Full)
+            self.logger.debug('Subscribing to {}'.format(inst.symbol))
+            self.client.unsubscribe(inst, LiveFeedType.Full)
             self.client.subscribe(inst, LiveFeedType.Full)
         except HTTPError as e:
+            self.logger.exception('message')
             self.client.unsubscribe(inst, LiveFeedType.Full)
 
         self.stock_dict[sym.upper()] = GannAngles(inst)
 
 
     def remove_stocks(self, sym=None):
-        '''Unsubscribe from a live feed'''
+        '''Unsubscribe and remove strategy for a live feed'''
         unsub = None
+        self.logger.warning('Removing {} from list.'.format(sym))
         try:
             unsub = self.stock_dict.pop(sym)
         except KeyError as e:
-            print('Stock not tracked by program.')
+            self.logger.debug('{} has no GannAngles obj associated.'.format(sym))
             return
 
         try:
+            self.logger.warning('Unsubscribing {}. Will no longer receive updates'
+                    .format(sym))
             self.client.unsubscribe(unsub.instrument, LiveFeedType.Full)
+            unsub = None
         except TypeError as e:
-            print('No such stock to unsub from')
+            self.logger.error('Already unsubbed')
         except Exception as e:
+            self.logger.exception('message')
             # TODO figure out exceptions
             pass
 
@@ -178,6 +182,7 @@ class TradeCenter:
             self.order_queue.append(message)
             self.condition.notify_all()
 
+
     def trade_handler(self, message):
         '''Addes message to queue for processing.
         
@@ -188,11 +193,7 @@ class TradeCenter:
             self.condition.notify_all()
 
 
-    def quote_update(self, message):
-        '''Processes quotes from the queue.
-        
-        Implemented this way to keep function executions client-side whenever
-        possible.
+        '''
         Message object:
         {'bids': [{'orders': 2, 'price': 97.5, 'quantity': 150},],
         'high': 111.85,
@@ -216,57 +217,72 @@ class TradeCenter:
         'total_sell_qty': 221775,
         'atp': 103.58}
         '''
-
+    def quote_update(self, message):
+        '''Processes quotes from the queue.
+        
+        Implemented this way to keep function executions client-side whenever
+        possible.
+        '''
         sym = message['symbol']
 
         try:
-            action, args = self.stock_dict[sym].quote_update(message)
+            action = self.stock_dict[sym].quote_update(message)
         except KeyError:
-            print('{} Not in subscribed stock list'.format(sym))
+            self.logger.debug('{} Not in subscribed stock list'.format(sym))
 
         order = ''
-        if action == Actions.buy and args is not None:
+        args = None
+        if action == ACTIONS.none:
+            pass
+        elif action == ACTIONS.buy:
+            args = self.stock_dict[sym].get_buy_order()
             print_l('')
             print_s('OUT')
-            print_l('Placing order:')
-            print_l('Instrument:    {}'.format(args[1].symbol))
-            print_l('Order Price:   {}'.format(args[5]))
-            print_l('Trigger price: {}'.format(args[6]))
-            print_l('Sell Target:   {}'.format(args[5] + args[10]))
-            print_l('Stoploss:      {}'.format(args[5] - args[9]))
-            print_l('Quantity:      {}'.format(args[2]))
-            print_s('OUT')
+            print('Placing buy order:')
+            print('Instrument:    {}'.format(args[1].symbol))
+            print('Order Price:   {}'.format(args[5]))
+            print('Quantity:      {}'.format(args[2]))
+            print('OUT')
             print_l('')
-
             if self.trading:
                 try:
+                    self.logger.debug('Attempted to place  for {} at Rs.{}'
+                                      .format(args[1].symbol, args[5]))
                     order = self.client.place_order(*args)
+                    if order:
+                        self.logger.debug('Buy order received by server. Ref={}'
+                                          .format(order['order_id']))
                 except Exception as e:
-                    print_s()
-                    print_l('Error while placing order!')
-                    print_l('order args:')
-                    print_l(args)
-                    print_l(e.args[0])
-                    print_s()
-        elif action == Actions.mod_sl and args is not None:
-            print_s('OUT')
-            print_l("{} - modifying stoploss order".format(sym))
-            print_l("order_id = {}".format(args[0]))
+                    self.logger.exception('message')
+        elif action == ACTIONS.modify:
+            args = self.stock_dict[sym].get_mod_order()
+            self.logger.info('Modifying {} stoploss - ID: {}'
+                             .format(sym, args[0]))
             try:
                 order = self.client.modify_order(order_id=args[0],
                                                  trigger_price=args[1])
+                if order:
+                        self.logger.debug('Modify request received by server. Ref= {}'
+                                          .format(order['order_id']))
             except Exception as e:
-                print_s()
-                print_l('Exception while modifying order!')
-                print_l(e.args[0])
-                print_s()
-
-            if len(order) > 0:
-                print_s('IN')
-                print_l('Response on place_order() - ')
-                print_l('Object of type - {}.'.format(type(order)))
-                print_l(order)
-                print_s('IN')
+                self.logger.exception('message')
+        else:
+            if action == ACTIONS.sell_target:
+                args = self.stock_dict[sym].get_target_order()
+            elif action == ACTIONS.sell_sl:
+                args = self.stock_dict[sym].get_sl_order()
+            if self.trading:
+                try:
+                    self.logger.debug('Placing Sell-{otype} order for {sym} at Rs.{rs}'
+                                      .format(otype=args[3],
+                                              sym=args[1].symbol,
+                                              rs=args[5]))
+                    order = self.client.place_order(*args)
+                    if order:
+                        self.logger.debug('Sell order received by server. Ref= {}'
+                                          .format(order['order_id']))
+                except Exception as e:
+                    self.logger.exception('message')
 
 
     def order_update(self, message):
@@ -275,16 +291,15 @@ class TradeCenter:
         Updates the relevant TradeStrategy object in stock_dict with the order info
         '''
         sym = message['symbol'].upper()
-        print_s('IN')
+        self.logger.info('Order update for {} - ID: {}'
+                         .format(sym, message['order_id']))
+        self.logger.info(str(message['status']))
         try:
             self.stock_dict[sym].order_update(message)
-        except KeyError as e:
-            print_l('Update received for unregistered stock')
+        except KeyError:
+            self.logger.info('Order update received for external order')
         except Exception as e:
-            print_l("Unhandled Error in order_update:")
-            print_l(e)
-
-        print_s('IN')
+            self.logger.exception('message')
 
 
     def trade_update(self, message):
@@ -293,84 +308,37 @@ class TradeCenter:
         Updates the relevant TradeStrategy object in stock_dict with the trade info
         '''
         sym = message['symbol'].upper()
-        print_s('IN')
+        self.logger.info('Trade update for {} - ID: {}'
+                         .format(sym, message['order_id']))
+        self.logger.info(str(message['status']))
         try:
             self.stock_dict[sym].order_update(message)
-        except KeyError as e:
-            print_l('Update received for unregistered stock')
+        except KeyError:
+            self.logger.info('Trade update received for external order')
         except Exception as e:
-            print("Error in trade_update_handler:")
-            print(e)
-        print_l('Trade info received:')
-        for key in message:
-            print_l(message[key])
-        print_s('IN')
-
-
-    def make_reports(self):
-        ''' Currently testing.
-        
-        Saves the day's total trades and orders in a
-        text file'''
-        orders = self.client.get_order_history()
-        sorted_orders = []
-        print_l("Generating order book")
-        for order in orders:
-            if order['product'] == 'D':
-                continue
-            if order['transaction_type'] == 'B':
-                if order['status'] != 'rejected' and \
-                   order['status'] != 'cancelled':
-                    sorted_orders.append(order)
-                    p_id = order['order_id']
-                    for order in orders:
-                        if order['parent_order_id'] == p_id and \
-                           order['transaction_type'] == 'S':
-                            sorted_orders.append(order)
-
-        print_keys = ['symbol',
-                      'product',
-                      'order_type',
-                      'transaction_type',
-                      'status',
-                      'price',
-                      'trigger_price',
-                      'order_id',
-                      'parent_order_id',
-                      'exchange_time']
-        dmy = date.today().strftime('%d%m%y')
-        with open('orders{}.txt'.format(dmy), 'w') as f:
-            f.write('Orders placed ----\n')
-            for order in sorted_orders:
-                for key in print_keys:
-                    f.write("{} :: {}\n".format(key, order[key]))
-                f.write("\n----------------------------------\n")
-        print_l("Generating trade book")
-        trades = self.client.get_trade_book()
-        with open('trades{}.txt'.format(dmy), 'w') as f:
-            f.write('Trades Completed ----\n')
-            for trade in trades:
-                for key, val in trade.items():
-                    f.write("{} :: {}\n".format(key, val))
-                    f.write("\n-----------------\n")
+            self.logger.exception('message')
 
 
     def setup_logger(self):
-
-        logger = logging.getLogger('tradecenter')
-        logger.setLevel(logging.DEBUG)
-        logname = 'debug.log'
-        formatter = logging.Formatter(style='{')
-
+        '''Creates logger for Tradecenter messages'''
+        self.logger = logging.getLogger('tradecenter')
+        self.logger.setLevel(logging.DEBUG)
+        logname = 'center' + datetime.strftime(datetime.now(), '%d-%b-%y') + '.log'
+        f = '{asctime}|{name}|{levelname} - {message}'
+        formatter = logging.Formatter(fmt=f, style='{',
+                                      datefmt='%H:%M:%S')
         fh = logging.FileHandler(logname)
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(formatter)
 
         sh = logging.StreamHandler()
+        sh.setLevel(logging.WARNING)
         sh.setFormatter(formatter)
 
-        # TODO - Continue here
-
+        self.logger.addHandler(fh)
+        self.logger.addHandler(sh)
+        
+        self.logger.debug('Logger initialised')
 
 
     def sign_in(self):
@@ -381,32 +349,33 @@ class TradeCenter:
         token = ''
         client = None
         try:
-            print_l('Loading previous credentials')
+            self.logger.debug('Checking for stored credentials')
             with open(token_file, "rb") as f:
                 token = pickle.load(f)
         except FileNotFoundError:
-            print_l('Data file not found. Creating new file...')
+            self.logger.debug('Credentials file not found. Creating new file...')
             with open(token_file, "wb") as f:
                 pass
         except EOFError:
-            print_l('Data file empty. New credentials needed.')
+            self.logger.debug('Data file empty.')
         finally:
             if not token:
                 return False
 
         try:
+            self.logger.info('Attempting login with stored credentials')
             client = Upstox(self.config['api_key'], token)
         except HTTPError as e:
             err = e.args[0]
-            # Similar error messages for incorrect and expired token. 'Invalid'
-            # is common word between them
-            if 'Invalid':
-                print('Invalid token entered')
+            # Similar error messages for incorrect and expired token.
+            # 'Invalid'  is common word between them
+            if 'Invalid' in err:
+                self.logger.critical('Invalid token entered')
             else:
                 raise
         finally:
             if client is not None:
-                print_l('Logged in successfully.')
+                self.logger.info('Signed in to upstox.')
                 self.client = client
                 return True
             return False
@@ -416,10 +385,10 @@ class TradeCenter:
         if self.sesh is None:
             return False
         self.sesh.set_code(auth_code)
-        print_l("Authenticating...")
+        self.logger.debug("Authenticating...")
         access_token = str(self.sesh.retrieve_access_token())
         access_time = datetime.now()
-        print('Access token received')
+        self.logger.debug('Access token received')
         with open('data.pkl', 'wb') as f:
             pickle.dump(access_token, f)
             pickle.dump(access_time, f)
@@ -427,7 +396,7 @@ class TradeCenter:
 
 
     def get_session_url(self):
-        print(self.config)
+        self.logger.debug('Getting new session URL')
         self.sesh = Session(self.config['api_key'])
         self.sesh.set_redirect_uri("https://upstox.com")
         self.sesh.set_api_secret(self.config['api_secret'])
@@ -436,18 +405,18 @@ class TradeCenter:
             return url
         except HTTPError as e:
             # No errors encountered yet...
-            print(e.args[0])
+            self.logger.exception('message')
             return None
 
 
     def close_ops(self):
-        'Unsubscribe from upstox scrips and closes other threads'
-        print_s()
-        print_l('Shutting Down')
-        for sym, stock in self.stock_dict.items():
-            self.client.unsubscribe(stock.instrument, LiveFeedType.Full)
-        print_l('Shut Down Complete.')
-        print_s()
+        '''Unsubscribe from upstox scrips and closes other threads'''
+        self.logger.warning('Closing program')
         with self.condition:
+            self.logger.debug('notifying threads')
             self.listening = False
             self.condition.notify_all()
+        for sym, stock in self.stock_dict.items():
+            self.logger.debug('Unsubbing {}'.format(stock.instrument.symbol))
+            self.client.unsubscribe(stock.instrument, LiveFeedType.Full)
+        self.logger.debug('Finished all exit tasks.')

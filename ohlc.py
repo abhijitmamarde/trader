@@ -5,9 +5,10 @@ import os
 
 
 class OHLC:
+    'For storing stock/derivative OHLC + ltp/atp'
     fmt= '%Y-%m-%d %H:%M:%S'
     def __init__(self, epoch=0 , sym='0', ltp=0.0, atp=0.0, op=0.0, hi=0.0, lo=0.0, cl=0.0):
-        "epoch: any UTC based timestamp , sym:str, ltp:float, atp:float, op:float, hi:float, lo:float, cl:float"
+        'Use fromquote() class method for easier creation.'
         self.symbol = str(sym).upper()
         if len(str(epoch)) > 12:
             self.epoch = epoch/1000
@@ -54,7 +55,8 @@ class OHLC:
 
     @classmethod
     def fromquote(cls, quote):
-        return cls(int(quote['timestamp']),
+        # Quote timestamps received in ms.
+        return cls(int(quote['timestamp']/1000),
                    str(quote['symbol']).upper(),
                    float(quote['ltp']),
                    float(quote['atp']),
@@ -85,6 +87,8 @@ class OHLCLog:
     def __init__(self, symbol=''):
         self.tod = date.today()
         self.csv_dict = {}
+        self.TS = 0
+        self.ISO = 1
 
 
     def create_ohlc_file(self, symbol=None):
@@ -114,7 +118,7 @@ class OHLCLog:
 
 
     @classmethod
-    def readohlc(self, filename=None, numrows=0):
+    def readohlc(self, filename=None, numrows=0, tf=0):
         'Returns specified number of rows from filename.csv as a list of OHLC objects'
         data = []
         try:

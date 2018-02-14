@@ -1,5 +1,6 @@
 from datetime import datetime, date
 from collections import namedtuple
+from bunch import Bunch
 
 DATE = date.today().strftime("%d%b%y")
 TIMEFMT = '%d%b%y-%H:%M:%S.%f'
@@ -14,9 +15,21 @@ CONFIG_TEXT = '''!This file is auto generated. Do not edit.
 !Each category's expected data is mentioned in it's first line
 '''
 
-Acts = namedtuple('Actions', 'none buy mod_target mod_sl')
-Actions = Acts(0, 1, 2, 3)
+ACTIONS = Bunch(none=0, buy=1, sell_target=2, sell_sl=3, modify=4)
 
+STATUS_TYPES = Bunch(positive = ('open',
+                                 'trigger pending',
+                                 'complete'),
+                     processing = ('put order req received',
+                                   'validation pending',
+                                   'open pending',
+                                   'modify validation pending',
+                                   'modify pending',
+                                   'cancel pending'),
+                     negative = ('rejected',
+                                 'not modified',
+                                 'not cancelled')
+                     )
 
 def print_l(line):
     global DATE
@@ -77,30 +90,6 @@ def load_config():
     return config
 
 
-def is_status_good(status=''):
-    processing = ['put order req received',
-                  'validation pending',
-                  'open pending',
-                  'modify validation pending',
-                  'modify pending',
-                  'cancel pending']
-    positive = ['open',
-                'trigger pending',
-                'complete',
-                'modified',
-                'cancelled']
-    negative = ['rejected',
-                'not modified',
-                'not cancelled']
-
-    if status in processing:
-        return 'processing'
-    elif status in positive:
-        return 'positive'
-    elif status in negative:
-        return 'negative'
-    else:
-        return 'invalid'
 
 
 def round_off(num, div=0.1):

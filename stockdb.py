@@ -7,7 +7,7 @@ import sqlite3
 from sqlite3 import OperationalError
 import time
 
-ohlc_table_fields = ({'name':'ts', 'type':'DATETIME'},
+OHLC_TABLE_FIELDS = ({'name':'ts', 'type':'DATETIME'},
                      {'name':'ltp', 'type':'REAL'},
                      {'name':'atp', 'type':'REAL'},
                      {'name':'open', 'type':'REAL'},
@@ -15,7 +15,7 @@ ohlc_table_fields = ({'name':'ts', 'type':'DATETIME'},
                      {'name':'low', 'type':'REAL'},
                      {'name':'close', 'type':'REAL'})
 
-table_types = Bunch(ohlc=0, open_orders=1)
+TABLE_TYPES = Bunch(ohlc=0, orders=1)
 
 class StockDB:
     sqlite_file = "trade_db.sqlite"
@@ -23,7 +23,6 @@ class StockDB:
     cursor = None
     tables = []
     initialized = False
-
 
     def initialize(self, db_name=None):
         "Connects to or creates the sqlite DB"
@@ -47,10 +46,11 @@ class StockDB:
 
 
     def create_table(self, tablename, tabletype):
-        global ohlc_table_fields
+        '''Will only create a table if it doesn't exist'''
+        global OHLC_TABLE_FIELDS
 
-        if tabletype == table_types['ohlc']:
-            fields = ohlc_table_fields
+        if tabletype == TABLE_TYPES['ohlc']:
+            fields = OHLC_TABLE_FIELDS
         else:
             return False
 
@@ -85,7 +85,7 @@ class StockDB:
         Fails if table does not exist
         Returns True on success, False on fail
         '''
-        if tabletype == table_types.ohlc:
+        if tabletype == TABLE_TYPES.ohlc:
             try:
                 with self.conn:
                     self.cursor.execute(
@@ -155,9 +155,9 @@ class StockDB:
     def load_ohlc_from_csv(self, ohlc_csv_file):
         data = OHLCLog.readohlc(ohlc_csv_file)
         sym = data[0].symbol
-        self.create_table(sym, table_types.ohlc)
+        self.create_table(sym, TABLE_TYPES.ohlc)
         for item in data:
-            self.add_data(sym, table_types.ohlc, item)
+            self.add_data(sym, TABLE_TYPES.ohlc, item)
 
 
 def db_test():

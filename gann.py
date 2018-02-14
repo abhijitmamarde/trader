@@ -1,94 +1,236 @@
+'''Module docstring'''
+import logging
 from datetime import datetime
 from math import sqrt
-
-from ohlc import OHLC
 from upstox_api.api import TransactionType, OrderType, ProductType, DurationType
-from utils import is_trade_active, round_off, Actions, print_s, print_l
+from ohlc import OHLC
+from utils import round_off, ACTIONS, STATUS_TYPES, is_trade_active
 from strategy import Strategy
 
 
 
 class GannAngles(Strategy):
-
-    test = False
+    '''Gann Angle strat'''
     gann_angles = [0.02, 0.04, 0.08, 0.1, 0.15, 0.25, 0.35,
                    0.4, 0.42, 0.46, 0.48, 0.5, 0.67, 1.0]
+    test = False
+    init = False
+    logger = None
+    max_attempts = 5
+    order_attempts = 0
+
     res_vals = []
     sup_vals = []
     res_trigger = 0.0
     sup_trigger = 0.0
-    init = False
+
     buy_orderid = 0
     stoploss_orderid = 0
     target_orderid = 0
-    sell_orderid = 0
-    ordered = False
-    order_attempts = 0
-    max_attempts = 5
+
+    buy_placed = False
+    sell_placed = False
+    mod_placed = False
 
 
     def initialize(self, quote_info, test=False):
-        self.ohlc = OHLC().fromquote(quote_info)
+        '''Calculates buy/sell triggers.
+
+        Automatically called by quote_update() if not initialized
+        test argument currently unused.
+        '''
+        if isinstance(quote_info, OHLC):
+            self.ohlc = quote_info
+        else:
+            self.ohlc = OHLC.fromquote(quote_info)
+
         self.test = test
         if is_trade_active():
             self.calc_resistance(self.ohlc.ltp)
             self.calc_support(self.ohlc.ltp)
             self.init = True
-            print_s()
-            print_l('Gann Angle for {}'.format(self.instrument.symbol))
-            print_l('Calculated on ltp = {}'.format(self.ohlc.ltp))
-            print_l('Buy Trigger = {}'.format(self.res_trigger))
-            print_l('Support Trigger = {}'.format(self.sup_trigger))
-            print_s()
+            self.logger.info('{} Gann Angle - on LTP {}, buy at {}'
+                             .format(self.instrument.symbol,
+                                     self.ohlc.ltp,
+                                     self.res_trigger))
+
+
+    def setup_logger(self):
+        '''Creates logger with name gann_symbol.log'''
+        self.logger = logging.getLogger('gann_{}'.format(self.instrument.symbol))
+        self.logger.setLevel(logging.DEBUG)
+        logname = 'Gann_{}'.format(self.instrument.symbol) \
+                  + datetime.strftime(datetime.now(), '%d-%b-%y') \
+                  + '.log'
+        f = '{asctime}|{name}|{levelname} - {message}'
+        formatter = logging.Formatter(fmt=f, style='{',
+                                      datefmt='%H:%M:%S')
+        fh = logging.FileHandler(logname)
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(formatter)
+
+        sh = logging.StreamHandler()
+        sh.setLevel(logging.WARNING)
+        sh.setFormatter(formatter)
+
+        self.logger.addHandler(fh)
+        self.logger.addHandler(sh)
+        self.logger.debug('Gann Angle logger initialised')
 
 
     def quote_update(self, quote_info):
+        '''Main point of GannAngles execution'''
         if self.init is False:
             self.initialize(quote_info)
-            return Actions.none, None
+            return ACTIONS.none
         self.last_update = datetime.now()
+        self.ohlc = OHLC.fromquote(quote_info)
 
-        self.ohlc.ltp = float(quote_info['ltp'])
-        self.ohlc.atp = float(quote_info['atp'])
-        self.ohlc.op = float(quote_info['open'])
-        self.ohlc.hi = float(quote_info['high'])
-        self.ohlc.lo = float(quote_info['low'])
-        self.ohlc.cl = float(quote_info['close'])
-        self.epoch = int(quote_info['timestamp']) / 1000
-
-        if self.ordered or self.order_attempts > self.max_attempts:
-            return Actions.none, None
+        if self.buy_placed or self.order_attempts > self.max_attempts:
+            return ACTIONS.none
         elif self.ohlc.ltp >= self.res_trigger and is_trade_active():
-            self.ordered = True
-            print_l('Order attempt {} of {}'.format(self.order_attempts,
-                                                    self.max_attempts))
-            return Actions.buy, self.buy_args()
+            self.buy_placed = True
+            self.logger.debug('Buy Order attempt {}/{} for {}'
+                              .format(self.order_attempts,
+                                      self.max_attempts,
+                                      self.ohlc.symbol))
+            return ACTIONS.buy
         elif self.ohlc.ltp <= self.sup_trigger:
-            self.calc_resistance(self.ohlc.ltp)
-        return Actions.none, None
+            if self.buy_orderid:
+                return ACTIONS.sell
+            else:
+                self.calc_resistance(self.ohlc.ltp)
+        return ACTIONS.none
 
 
     def order_update(self, order_info):
-        if self.not_rejected(order_info['status']):
-            if order_info['transaction_type'] == 'B':
-                self.buy_orderid = order_info['order_id']
-                if order_info['status'] == 'complete':
-                    self.order_attempts += 1
-            elif order_info['trigger_price'] > 0:
-                self.stoploss_orderid = order_info['order_id']
+        '''Stores order IDs as they are processed by the server'''
+        status = order_info['status']
+        oid = order_info['order_id']
+        txn = order_info['transaction_type']
+        if txn == 'B':
+            self.logger.debug('Buy order update - {sym} order {id} - {st}'
+                              .format(sym=self.ohlc.symbol,
+                                      id=oid,
+                                      st=status))
+            if status in STATUS_TYPES.positive:
+                self.buy_orderid = oid
+            elif status in STATUS_TYPES.negative:
+                self.buy_placed = False
+                self.order_attempts += 1
+            elif status in STATUS_TYPES.neutral:
+                pass
             else:
-                self.target_orderid = order_info['order_id']
-        else:
-            self.order_attempts += 1
-            print_l('Order rejected, {} attempts remaining'.format(self.max_attempts -
-                    self.order_attempts))
+                self.logger.debug('Unknown update type')
+        else: # sell orders
+            o_type = order_info['order_type']
+            self.logger.debug('Sell order update - {sym} order {id} - {st}'
+                              .format(sym=self.ohlc.symbol,
+                                      id=oid,
+                                      st=status))
+            if status in STATUS_TYPES.positive:
+                if o_type == 'Limit':
+                    self.target_orderid = oid
+                elif o_type == 'StopLoss':
+                    self.stoploss_orderid = oid
+                else:
+                    self.logger.warning('Invalid sell order created by server')
+                    self.logger.warning('Expected - {} | Created - {}'
+                                        .format('Limit', o_type))
+            elif status in STATUS_TYPES.neutral:
+                pass
+            elif status in STATUS_TYPES.negative:
+                self.logger.warning('Sell order failed! Reason: {}'
+                                    .format(order_info['reason']))
+            else:
+                self.logger.debug('Unknown update type')
         self.orders.append(order_info)
 
 
     def trade_update(self, trade_info):
         if trade_info['transaction_type'] == 'S':
-            self.sell_orderid = trade_info['transaction_type']
+            self.order_attempts += 1
         self.trades.append(trade_info)
+
+
+    '''
+    Place_order() Args List:
+    1  - Buy/Sell
+    2  - Instrument to buy
+    3  - Quantity (for futures, it is multiples of 75)
+    4  - Order Type - StopLossLimit(SL/Limit(L)/SLM(StoplossMarket/Market
+    5  - Product Type - Intraday/Delivery/CO/OCO
+    6  - Order price for purchase
+    7  - Trigger Price for purchase to activate
+    8  - Disclosed qt shown on NSE to other traders
+    9  - Duration of trade(Use "DAY" only)
+    10 - Stoploss as positive Difference between the purchase price and
+         stop-loss target price
+    11 - Square Off as positive Difference between purchase price and
+         profit target price
+    12 - Multiplier for 5 paise. Resultant no. is the flexibility
+         given while placing orders.
+    '''
+
+    def get_buy_order(self):
+        '''1x2 value with initialzing LTP as base value in Gann chart '''
+        args = (TransactionType.Buy,
+                self.instrument,
+                75,
+                OrderType.Limit,
+                ProductType.Delivery,
+                round_off(self.res_vals[4]),
+                None,
+                0,
+                DurationType.DAY,
+                None,
+                None,
+                None)
+        return args
+
+
+    def get_target_order(self):
+        '''1x64 value on Gann Chart'''
+        args = (TransactionType.Sell,
+                self.instrument,
+                75,
+                OrderType.Limit,
+                ProductType.Delivery,
+                round_off(self.res_vals[-1]),
+                0,
+                0,
+                DurationType.DAY,
+                None,
+                None,
+                None
+                )
+        return args
+
+
+    def get_sl_order(self):
+        '''1x1 value on reverse direction in Gann Chart'''
+        args = (TransactionType.Sell,
+                self.instrument,
+                75,
+                OrderType.StopLoss,
+                ProductType.Delivery,
+                round_off(self.res_vals[4]),
+                self.sup_vals[5],
+                0,
+                DurationType.DAY,
+                None,
+                None,
+                None
+                )
+        return args
+
+
+    def get_mod_order(self):
+        sl = self.stoploss_orderid
+        args = (sl['order_id'],
+                self.sup_trigger)
+        self.modifying = True
+        return args
 
 
     def calc_resistance(self, price):
@@ -107,52 +249,3 @@ class GannAngles(Strategy):
             support.append(tmp)
         self.sup_vals = support
         self.sup_trigger = support[5]
-
-
-    def buy_args(self):
-        '''
-        Place_order() Args List:
-        1  - Buy/Sell
-        2  - Instrument to buy
-        3  - Quantity (for futures, it is multiples of 75)
-        4  - Order Type - StopLossLimit(SL/Limit(L)/SLM(StoplossMarket/Market
-        5  - Product Type - Intraday/Delivery/CO/OCO
-        6  - Order price for purchase
-        7  - Trigger Price for purchase to activate
-        8  - Disclosed qt shown on NSE to other traders
-        9  - Duration of trade(Use "DAY" only)
-        10 - Stoploss as Difference between the purchase price and
-             stop-loss target price
-        11 - Square Off as Difference between purchase price and
-             profit target price
-        12 - Multiplier for 5 paise. Resultant no. is the flexibility
-             given while placing orders.
-        '''
-        args = (TransactionType.Buy,
-                self.instrument,
-                75,
-                OrderType.StopLossLimit,
-                ProductType.OneCancelsOther,
-                round_off(self.res_vals[4]),
-                round_off(self.res_vals[3]),
-                0,
-                DurationType.DAY,
-                round_off(self.res_vals[4] - self.sup_vals[5]),
-                round_off(self.res_vals[-1] - self.res_vals[4]),
-                None
-                )
-        return args
-
-
-    def mod_sl_args(self):
-        sl = self.stoploss_order
-        args = (sl['order_id'],
-                self.sup_trigger)
-        self.modifying = True
-        return args
-
-
-    def not_rejected(self, status):
-        if status == 'cancelled' or status == 'rejected':
-            return False
-        return True
