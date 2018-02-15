@@ -11,26 +11,30 @@ from strategy import Strategy
 
 class GannAngles(Strategy):
     '''Gann Angle strat'''
-    gann_angles = [0.02, 0.04, 0.08, 0.1, 0.15, 0.25, 0.35,
-                   0.4, 0.42, 0.46, 0.48, 0.5, 0.67, 1.0]
-    test = False
-    init = False
-    logger = None
-    max_attempts = 5
-    order_attempts = 0
+    def __init__(self, inst):
+        super().__init__(inst)
+        self.gann_angles = [0.02, 0.04, 0.08, 0.1, 0.15, 0.25, 0.35,
+                       0.4, 0.42, 0.46, 0.48, 0.5, 0.67, 1.0]
+        self.test = False
+        self.init = False
+        self.logger = None
+        self.max_attempts = 5
+        self.order_attempts = 0
 
-    res_vals = []
-    sup_vals = []
-    res_trigger = 0.0
-    sup_trigger = 0.0
+        self.res_vals = []
+        self.sup_vals = []
+        self.res_trigger = 0.0
+        self.sup_trigger = 0.0
 
-    buy_orderid = 0
-    stoploss_orderid = 0
-    target_orderid = 0
+        self.buy_orderid = 0
+        self.stoploss_orderid = 0
+        self.target_orderid = 0
 
-    buy_placed = False
-    sell_placed = False
-    mod_placed = False
+        self.buy_placed = False
+        self.sell_placed = False
+        self.mod_placed = False
+
+        self.setup_logger()
 
 
     def initialize(self, quote_info, test=False):
@@ -118,7 +122,7 @@ class GannAngles(Strategy):
             elif status in STATUS_TYPES.negative:
                 self.buy_placed = False
                 self.order_attempts += 1
-            elif status in STATUS_TYPES.neutral:
+            elif status in STATUS_TYPES.processing:
                 pass
             else:
                 self.logger.debug('Unknown update type')
@@ -137,7 +141,7 @@ class GannAngles(Strategy):
                     self.logger.warning('Invalid sell order created by server')
                     self.logger.warning('Expected - {} | Created - {}'
                                         .format('Limit', o_type))
-            elif status in STATUS_TYPES.neutral:
+            elif status in STATUS_TYPES.processing:
                 pass
             elif status in STATUS_TYPES.negative:
                 self.logger.warning('Sell order failed! Reason: {}'

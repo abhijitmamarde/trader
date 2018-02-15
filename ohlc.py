@@ -56,7 +56,7 @@ class OHLC:
     @classmethod
     def fromquote(cls, quote):
         # Quote timestamps received in ms.
-        return cls(int(quote['timestamp']/1000),
+        return cls(int(quote['timestamp'])/1000,
                    str(quote['symbol']).upper(),
                    float(quote['ltp']),
                    float(quote['atp']),

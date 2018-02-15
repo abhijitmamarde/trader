@@ -189,12 +189,10 @@ class Configurator(Frame):
         self.stock_list.grid(row=1, columnspan=2, rowspan=3,
                              sticky='ewns', padx=5, pady=5)
         remove_scrip_button = Button(self.scrips_frame, text='Remove selected',
-                                     command=lambda self=self:
-                                     self.stock_list.delete(ANCHOR))
+                                     command=lambda self=self: self.remove_stocks(False))
         remove_scrip_button.grid(row=4, columnspan=2, sticky='ewns', padx=5, pady=5)
         remove_all_button = Button(self.scrips_frame, text='Remove all',
-                                   command=lambda self=self:
-                                   self.stock_list.delete(0, END))
+                                   command=lambda self=self: self.remove_stocks(True))
         remove_all_button.grid(row=5, columnspan=2, sticky='ewns', padx=5, pady=5)
 
         # ==================================================
@@ -206,9 +204,10 @@ class Configurator(Frame):
 
         self.quit_button = Button(self, text='quit', command=self.close_app)
         self.quit_button.grid(padx=4, pady=4, row=10, column=1, sticky='ewns')
-
+        self.t_var = IntVar()
         self.enable_trading = Checkbutton(self, text='Enable trading',
-                                          variable=self.ts.trading)
+                                          variable=self.t_var,
+                                          command=self.toggle_trading)
         self.enable_trading.grid(padx=4, pady=4, row=10, column=2,
                                  columnspan=2, sticky='ewns')
         if self.ts.sign_in():
@@ -227,6 +226,21 @@ class Configurator(Frame):
             self.validation_link['state'] = 'readonly'
 
 
+    def toggle_trading(self):
+        if self.t_var:
+            self.ts.trading = True
+        else:
+            self.ts.trading = False
+
+
+    def remove_stocks(self, all=False):
+        if all:
+            pass # TODO
+        else:
+            sym = self.stock_list.get(ANCHOR)
+            print(sym)
+            self.ts.remove_stocks(sym)
+            self.stock_list.delete(ANCHOR)
     def center_window(self):
         w = 800
         h = 800

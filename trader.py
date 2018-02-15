@@ -39,6 +39,16 @@ class TradeCenter:
 
     def start_listener(self):
         '''Opens websocket to upstox server and starts listener daemon'''
+        for key, value in self.stock_dict.items():
+            try:
+                self.client.unsubscribe(value.instrument, LiveFeedType.Full)
+                resp = self.client.subscribe(value.instrument, LiveFeedType.Full)
+                if resp['success'] == True:
+                    self.logger.debug('Subbed to {}'.format(resp['symbol']))
+            except HTTPError as e:
+                self.logger.exception('message')
+                self.client.unsubscribe(value.instrument.symbol, LiveFeedType.Full)
+            
         try:
             self.logger.debug('Opening Websocket')
             self.client.start_websocket(True)
@@ -58,6 +68,7 @@ class TradeCenter:
         '''Checks update queues and calls the required update method'''
         self.db = StockDB()
         self.db.initialize('stock_db.sqlite')
+        self.logger.debug('Trading = {}'.format(str(self.trading)))
         global LOADED
         for key in self.stock_dict:
             if self.db.create_table(key, TABLE_TYPES.ohlc):
@@ -71,25 +82,22 @@ class TradeCenter:
                     for q in self.quote_queue:
                         o = OHLC.fromquote(q)
                         print(o)
-                        if o.symbol in LOADED:
-                            self.db.add_data(q['symbol'], TABLE_TYPES.ohlc, o)
-                        else:
-                            self.logger.info('Update for unsubbed stock {}.'
-                                                .format(o.symbol))
-                            self.db.create_table(o.symbol, TABLE_TYPES.ohlc)
-                            self.logger.info('Created db table for {} ohlc data'
-                                             .format(o.symbol))
-                            LOADED.append(o.symbol)
+                        self.db.add_data(q['symbol'], TABLE_TYPES.ohlc, o)
                         self.quote_update(q)
-                        self.quote_queue.remove(q)
+                    del self.quote_queue[:]
 
-                if self.order_queue > 0:
-                    self.order_update(self.order_queue.pop())
-                if self.trade_queue > 0:
-                    self.trade_update(self.trade_queue.pop())
+                if len(self.order_queue) > 0:
+                    for q in self.order_queue:
+                        self.order_update(q)
+                    del self.order_queue[:]
+
+                if len(self.trade_queue) > 0:
+                    for q in self.trade_queue:
+                        self.trade_update(q)
+                    del self.trade_queue[:]
                 time.sleep(0.2)
             except KeyboardInterrupt as e:
-                self.logger.critical('Program broken')
+                self.logger.critical('Program interrupted by user.')
                 self.close_ops()
 
 
@@ -125,19 +133,17 @@ class TradeCenter:
         inst = None
         try:
             inst = self.client.get_instrument_by_symbol('NSE_FO', sym)
+            self.logger.debug('Added {} to stock_dict'.format(inst.symbol))
         except Exception as e:
             # TODO Figure out exceptions
             self.logger.exception('message')
 
-        try:
-            self.logger.debug('Subscribing to {}'.format(inst.symbol))
-            self.client.unsubscribe(inst, LiveFeedType.Full)
-            self.client.subscribe(inst, LiveFeedType.Full)
-        except HTTPError as e:
-            self.logger.exception('message')
-            self.client.unsubscribe(inst, LiveFeedType.Full)
+        
 
         self.stock_dict[sym.upper()] = GannAngles(inst)
+        self.logger.debug('Current stock dict:')
+        for key, value in self.stock_dict.items():
+            self.logger.debug('{} -> {}'.format(key, type(value)))
 
 
     def remove_stocks(self, sym=None):
@@ -224,11 +230,12 @@ class TradeCenter:
         possible.
         '''
         sym = message['symbol']
-
+        
         try:
             action = self.stock_dict[sym].quote_update(message)
         except KeyError:
             self.logger.debug('{} Not in subscribed stock list'.format(sym))
+            action = ACTIONS.none
 
         order = ''
         args = None
@@ -236,14 +243,11 @@ class TradeCenter:
             pass
         elif action == ACTIONS.buy:
             args = self.stock_dict[sym].get_buy_order()
-            print_l('')
-            print_s('OUT')
-            print('Placing buy order:')
+            print('Place buy order:')
             print('Instrument:    {}'.format(args[1].symbol))
             print('Order Price:   {}'.format(args[5]))
             print('Quantity:      {}'.format(args[2]))
             print('OUT')
-            print_l('')
             if self.trading:
                 try:
                     self.logger.debug('Attempted to place  for {} at Rs.{}'
@@ -293,8 +297,12 @@ class TradeCenter:
         sym = message['symbol'].upper()
         self.logger.info('Order update for {} - ID: {}'
                          .format(sym, message['order_id']))
-        self.logger.info(str(message['status']))
+        print(message)
+        with open('messages.txt', 'a') as f:
+            for field, val in message.items():
+                f.write(field)
         try:
+            self.logger.info(str(message['status']))
             self.stock_dict[sym].order_update(message)
         except KeyError:
             self.logger.info('Order update received for external order')
